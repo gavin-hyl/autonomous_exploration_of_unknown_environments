@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'uav_controller_node'
+package_name = 'controller'
 
 setup(
     name=package_name,
