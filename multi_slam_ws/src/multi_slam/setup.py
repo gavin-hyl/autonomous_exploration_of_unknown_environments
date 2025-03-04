@@ -1,6 +1,6 @@
 from setuptools import find_packages, setup
 
-package_name = 'controller'
+package_name = 'multi_slam'
 
 setup(
     name=package_name,
@@ -16,10 +16,11 @@ setup(
     maintainer='gavin',
     maintainer_email='gavin.hyl@outlook.com',
     description='TODO: Package description',
-    license='TODO: License declaration',
+    license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
+            'visualization = multi_slam.visualization:main'
         ],
     },
 )
