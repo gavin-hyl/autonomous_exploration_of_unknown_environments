@@ -1,17 +1,11 @@
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
+from std_msgs.msg import String, Float32MultiArray
 
-class MinimalSubscriber(Node):
+class Visualizer(Node):
     def __init__(self):
         super().__init__('minimal_subscriber')
-        self.subscription = self.create_subscription(
-            String,
-            'chatter',
-            self.listener_callback,
-            10)
-        # Prevent unused variable warning.
-        self.subscription
+        self.control_input_sub = self.create_subscription(Float32MultiArray, '/control_input', self.control_intput_cb, 10) 
 
-    def listener_callback(self, msg):
-        self.get_logger().info(f'I heard: {msg.data}')
+    def control_intput_cb(self, msg: Float32MultiArray):
+        self.get_logger().info(f"Received control input: {msg.data}")

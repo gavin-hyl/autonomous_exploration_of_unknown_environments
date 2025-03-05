@@ -10,16 +10,24 @@
       name: "Taekyung Lee",
       organization: [California Institute of Technology],
       location: [Pasadena, CA],
-      email: ""
+      email: "tklee2@caltech.edu"
     ),
     (
-      name: "Laurenz Mädje",
+      name: "Gio Huh",
       organization: [California Institute of Technology],
       location: [Pasadena, CA],
-      email: ""
+      email: "ghuh@caltech.edu"
+    ),
+    (
+      name: "Gavin Hua",
+      organization: [California Institute of Technology],
+      location: [Pasadena, CA],
+      email: "ghua@caltech.edu"
     ),
   ),
-  index-terms: ("Scientific writing", "Typesetting", "Document creation", "Syntax"),
+  index-terms: ("SLAM", "Robotics"),
 )
+
+#footnote([All three authors contributed equally.]) <fn>
 
 // Your content goes below.

@@ -25,7 +25,7 @@ class Map:
         self.obstacles = [] if obstacles is None else obstacles
 
 
-    def add_obstacle(self, obstacle):
+    def _add_obstacle(self, obstacle):
         """
         Add an obstacle to the map.
 
@@ -100,7 +100,7 @@ class Map:
         return intersections
 
 
-    def plot_geom(self, geom, label):
+    def _plot_geom(self, geom, label):
         """
         Add a geometric object to the plot.
 
@@ -133,14 +133,14 @@ class Map:
         Returns:
             None (Run plt.show() to display the plot)
         """
-        self.plot_geom(self.boundary, 'Map Boundary')
+        self._plot_geom(self.boundary, 'Map Boundary')
 
         for i, obstacle in enumerate(self.obstacles):
-            self.plot_geom(obstacle, f'Obstacle {i+1}')
+            self._plot_geom(obstacle, f'Obstacle {i+1}')
 
         if geometries:
             for i, geom in enumerate(geometries):
-                self.plot_geom(geom, f'Geom {i+1}')
+                self._plot_geom(geom, f'Geom {i+1}')
 
         plt.legend()
 
@@ -148,10 +148,10 @@ class Map:
 MAP = Map(0, 0, 10, 10)
 
 obstacle1 = Polygon([(3, 3), (5, 3), (5, 5), (3, 5)])
-MAP.add_obstacle(obstacle1)
+MAP._add_obstacle(obstacle1)
 
 obstacle2 = LineString([(1, 9), (9, 1)])
-MAP.add_obstacle(obstacle2)
+MAP._add_obstacle(obstacle2)
 
 
 
@@ -161,10 +161,10 @@ if __name__ == '__main__':
     my_map = Map(0, 0, 10, 10)
 
     obstacle1 = Polygon([(3, 3), (5, 3), (5, 5), (3, 5)])
-    my_map.add_obstacle(obstacle1)
+    my_map._add_obstacle(obstacle1)
 
     obstacle2 = LineString([(1, 9), (9, 1)])
-    my_map.add_obstacle(obstacle2)
+    my_map._add_obstacle(obstacle2)
 
     point_inside = Point(5, 5)
     point_on_boundary = Point(0, 5)
