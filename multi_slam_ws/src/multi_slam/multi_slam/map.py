@@ -154,8 +154,6 @@ obstacle2 = LineString([(1, 9), (9, 1)])
 MAP._add_obstacle(obstacle2)
 
 
-
-
 # Tests
 if __name__ == '__main__':
     my_map = Map(0, 0, 10, 10)
