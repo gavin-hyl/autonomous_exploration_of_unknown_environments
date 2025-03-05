@@ -145,6 +145,17 @@ class Map:
         plt.legend()
 
 
+MAP = Map(0, 0, 10, 10)
+
+obstacle1 = Polygon([(3, 3), (5, 3), (5, 5), (3, 5)])
+MAP.add_obstacle(obstacle1)
+
+obstacle2 = LineString([(1, 9), (9, 1)])
+MAP.add_obstacle(obstacle2)
+
+
+
+
 # Tests
 if __name__ == '__main__':
     my_map = Map(0, 0, 10, 10)
