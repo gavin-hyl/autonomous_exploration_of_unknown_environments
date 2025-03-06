@@ -39,3 +39,8 @@ Our project proposes a multi-robot system designed for emergency rescue in a bui
 - GraphSLAM, need decent data.
 - by friday :D
 - multi-robot is ok, SLAM alone is enuf (robots exchange full information)
+
+==
+Combine LIDAR, IMU, Beacon, and physics simulation nodes. (One simulation, one robot node)
+We can use RVIZ
+Set up occupancy grid and learn to populate it with the LIDAR.
