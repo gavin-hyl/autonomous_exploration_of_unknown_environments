@@ -3,7 +3,7 @@
 <package format="3">
   <name>multi_slam</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Multi-Robot SLAM Demonstration.</description>
   <maintainer email="gavin.hyl@outlook.com">gavin</maintainer>
   <license>Apache-2.0</license>
 
