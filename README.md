@@ -1,11 +1,17 @@
-# ME/EE/CS 133b Final Project
+# Robotics (Caltech ME/EE/CS 133b) Final Project
 
 ## Contributors
 Gio Huh, Taekyung Lee, Gavin Hua
 
 
+## Instructions
+After cloning the repo, please 
+```sh
+pip install -r requirements.txt
+```
+
 ## ROS2 Node/Topic Structure
-Please keep this updated as you code!
+Please keep this updated as we code!
 
 ### Topics
 - `/control_signal`
