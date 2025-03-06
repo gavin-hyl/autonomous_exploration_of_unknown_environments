@@ -1,68 +1,97 @@
-import matplotlib.pyplot as plt
+from typing import List, Optional
 from shapely.geometry import Polygon, Point, LineString
+from shapely.geometry.base import BaseGeometry
 
 class Map:
     """
-    A class to represent a map with a rectangular boundary and obstacles.
-    The map can check for intersections with geometric objects and plot the map and geometric objects.
+    Represents a 2D map with a rectangular boundary, obstacles, and beacons.
+
+    This class supports checking intersections between a given geometry and
+    the map's boundary/obstacles, as well as adding obstacles and beacons.
 
     Attributes:
-        - boundary (Shapely LineString): The boundary of the map.
-        - obstacles (list of Shapely geometries): A list of obstacles
+        boundary (LineString): The boundary of the map as a rectangular polygon's edge.
+        obstacles (List[BaseGeometry]): A list of geometric obstacles on the map.
+        beacons (List[Point]): A list of beacon positions.
     """
-    def __init__(self, x_min, ymin, x_max, y_max, obstacles=None):
+    def __init__(
+        self, 
+        x_min: float, 
+        y_min: float, 
+        x_max: float, 
+        y_max: float, 
+        obstacles: Optional[List[BaseGeometry]] = None,
+        beacons: Optional[List[Point]] = None
+    ) -> None:
         """
-        Initialize a map with a rectangular boundary.
-        The rectangle is defined by the lower left (minx, miny)
-        and upper right (maxx, maxy) coordinates.
+        Initialize the map with a rectangular boundary.
+
+        The rectangle is defined by the lower-left corner (x_min, y_min) and
+        the upper-right corner (x_max, y_max).
+
+        Args:
+            x_min (float): Minimum x-coordinate (left boundary).
+            y_min (float): Minimum y-coordinate (bottom boundary).
+            x_max (float): Maximum x-coordinate (right boundary).
+            y_max (float): Maximum y-coordinate (top boundary).
+            obstacles (Optional[List[BaseGeometry]]): An optional list of obstacles.
         """
-        self.boundary = Polygon([
-            (x_min, ymin),
-            (x_max, ymin),
+        # Create a rectangular polygon and then use its boundary (LineString)
+        self.boundary: LineString = Polygon([
+            (x_min, y_min),
+            (x_max, y_min),
             (x_max, y_max),
             (x_min, y_max)
         ]).boundary
-        self.obstacles = [] if obstacles is None else obstacles
+        self.obstacles: List[BaseGeometry] = [] if obstacles is None else obstacles
+        self.beacons: List[Point] = [] if beacons is None else beacons
 
-
-    def _add_obstacle(self, obstacle):
+    def _add_obstacle(self, obstacle: BaseGeometry) -> None:
         """
         Add an obstacle to the map.
 
-        Parameters:
-            - obstacle (Shapely geometry): A geometric object representing an obstacle.
-        
-        Returns:
-            None
+        Args:
+            obstacle (BaseGeometry): A geometric object representing an obstacle.
         """
         self.obstacles.append(obstacle)
 
+    def _add_beacon(self, beacon: Point) -> None:
+        """
+        Add a beacon to the map.
 
-    def _extract_points(self, geom):
+        Args:
+            beacon (Point): A point representing the beacon's location.
         """
-        Helper method to extract points from a geometry:
-         - For Point, return [geom].
-         - For MultiPoint, return a list of its points.
-         - For LineString or LinearRing, return the midpoint.
-         - For MultiLineString, return the midpoint of each line.
-         - For GeometryCollection, recursively process each geometry.
-        
-        Parameters:
-            - geom (Shapely geometry): The geometry to extract points from.
-        
+        self.beacons.append(beacon)
+
+    def _extract_points(self, geom: BaseGeometry) -> List[Point]:
+        """
+        Extract representative points from a geometry.
+
+        - For a Point, returns [geom].
+        - For a MultiPoint, returns all its points.
+        - For LineString or LinearRing, returns the midpoint.
+        - For MultiLineString, returns the midpoint of each line.
+        - For GeometryCollection, recursively processes each geometry.
+        - For other types (e.g., Polygon), returns the centroid as a fallback.
+
+        Args:
+            geom (BaseGeometry): The geometry to extract points from.
+
         Returns:
-            A list of Shapely Point objects.
+            List[Point]: A list of representative points extracted from the geometry.
         """
-        points = []
+        points: List[Point] = []
         if geom.is_empty:
             return points
+
         if geom.geom_type == 'Point':
             points.append(geom)
         elif geom.geom_type == 'MultiPoint':
             points.extend(list(geom.geoms))
         elif geom.geom_type in ['LineString', 'LinearRing']:
-            # Calculate the midpoint of the line (arbitrary choice here)
-            mid = geom.interpolate(geom.length / 2)
+            # Compute the midpoint of the line
+            mid: Point = geom.interpolate(geom.length / 2)
             points.append(mid)
         elif geom.geom_type == 'MultiLineString':
             for line in geom.geoms:
@@ -72,107 +101,48 @@ class Map:
             for g in geom.geoms:
                 points.extend(self._extract_points(g))
         else:
-            # For any other geometry type (e.g., Polygon), use the centroid as a fallback.
+            # For geometries like Polygon, use the centroid as a fallback.
             points.append(geom.centroid)
         return points
 
-
-    def intersects(self, geom):
+    def intersects(self, geom: BaseGeometry) -> List[Point]:
         """
-        Returns all the intersections of the given geometric object with the map boundary and the obstacles.
+        Find intersections between a given geometry and the map's features.
 
-        Parameters:
-            - geom (Shapely geometry): A geometric object to check for intersection.
-        
+        Checks for intersections with the map's boundary and all obstacles,
+        and returns representative intersection points.
+
+        Args:
+            geom (BaseGeometry): The geometry to check for intersections.
+
         Returns:
-            a list of intersections.
+            List[Point]: A list of points where intersections occur.
         """
-        intersections = []
-        # Compute intersection with the map boundary
+        intersections: List[Point] = []
+        
+        # Intersection with the map boundary
         boundary_intersection = self.boundary.intersection(geom)
         if not boundary_intersection.is_empty:
             intersections.extend(self._extract_points(boundary_intersection))
-        # Compute intersections with each obstacle
+        
+        # Intersection with each obstacle
         for obstacle in self.obstacles:
             obs_intersection = obstacle.intersection(geom)
             if not obs_intersection.is_empty:
                 intersections.extend(self._extract_points(obs_intersection))
+        
         return intersections
 
 
-    def _plot_geom(self, geom, label):
-        """
-        Add a geometric object to the plot.
+# Example usage:
 
-        Parameters:
-            - geom (Shapely geometry): A geometric object to plot.
-            - label (str): A label for the geometric object.
-        
-        Returns:
-            None
-        """
-        if geom.geom_type == 'Polygon':
-            x, y = geom.exterior.xy
-            plt.plot(x, y, label=label)
-        elif geom.geom_type in ['LineString', 'LinearRing']:
-            x, y = geom.xy
-            plt.plot(x, y, label=label)
-        elif geom.geom_type == 'Point':
-            plt.plot(geom.x, geom.y, 'o', label=label)
-        else:
-            raise ValueError("Unsupported geometry type for plotting: " + geom.geom_type)
-        
-
-    def plot_map(self, geometries=None):
-        """
-        Plot the map's rectangular boundary, any added obstacles, and additional geometric objects.
-
-        Parameters:
-            - geometries (list of Shapely geometries): Additional geometric objects to plot.
-        
-        Returns:
-            None (Run plt.show() to display the plot)
-        """
-        self._plot_geom(self.boundary, 'Map Boundary')
-
-        for i, obstacle in enumerate(self.obstacles):
-            self._plot_geom(obstacle, f'Obstacle {i+1}')
-
-        if geometries:
-            for i, geom in enumerate(geometries):
-                self._plot_geom(geom, f'Geom {i+1}')
-
-        plt.legend()
-
-
+# Create a map with a rectangular boundary from (0,0) to (10,10)
 MAP = Map(0, 0, 10, 10)
 
+# Create and add a polygon obstacle
 obstacle1 = Polygon([(3, 3), (5, 3), (5, 5), (3, 5)])
 MAP._add_obstacle(obstacle1)
 
+# Create and add a line obstacle
 obstacle2 = LineString([(1, 9), (9, 1)])
 MAP._add_obstacle(obstacle2)
-
-
-# Tests
-if __name__ == '__main__':
-    my_map = Map(0, 0, 10, 10)
-
-    obstacle1 = Polygon([(3, 3), (5, 3), (5, 5), (3, 5)])
-    my_map._add_obstacle(obstacle1)
-
-    obstacle2 = LineString([(1, 9), (9, 1)])
-    my_map._add_obstacle(obstacle2)
-
-    point_inside = Point(5, 5)
-    point_on_boundary = Point(0, 5)
-    line_intersecting = LineString([(-5, 5), (15, 5)])
-    line_outside = LineString([(15, 15), (20, 20)])
-
-    print("Intersections for point_inside:", my_map.intersects(point_inside))
-    print("Intersections for point_on_boundary:", my_map.intersects(point_on_boundary))
-    print("Intersections for line_intersecting:", my_map.intersects(line_intersecting))
-    print("Intersections for line_outside:", my_map.intersects(line_outside))
-
-    my_map.plot_map([point_inside, point_on_boundary, line_intersecting, line_outside])
-    plt.show()
