@@ -1,6 +1,8 @@
 from typing import List, Optional
 from shapely.geometry import Polygon, Point, LineString
 from shapely.geometry.base import BaseGeometry
+import math
+import numpy as np
 
 class Map:
     """
@@ -105,7 +107,7 @@ class Map:
             points.append(geom.centroid)
         return points
 
-    def intersects(self, geom: BaseGeometry) -> List[Point]:
+    def intersections(self, geom: BaseGeometry) -> List[Point]:
         """
         Find intersections between a given geometry and the map's features.
 
@@ -133,6 +135,46 @@ class Map:
         
         return intersections
 
+    def calc_lidar_point_cloud(self, pos_true: np.array, delta_theta: float, r_max: float, r_min: float):
+        # Create the line segments for the LiDAR rays
+        ray_segments = []
+        for theta in range(0, 360, delta_theta):
+            x_end = pos_true[0] + r_max * math.cos(math.radians(theta))
+            y_end = pos_true[1] + r_max * math.sin(math.radians(theta))
+            ray_segments.append(LineString([(pos_true[0], pos_true[1]), (x_end, y_end)]))
+        
+        # Find closest intersection points
+        point_cloud = []
+        for ray in ray_segments:
+            intersections = self.intersections(ray)
+            if intersections:
+                # Find the closest intersection point
+                closest_point = min(intersections, key=lambda p: p.distance(Point(pos_true)))
+                # Discard points outside the valid range
+                if r_min <= closest_point.distance(Point(pos_true)) <= r_max:
+                    point_cloud.append(closest_point)
+            else:
+                # No intersection, add the ray's endpoint
+                point_cloud.append(Point(ray.coords[-1]))
+
+        return point_cloud
+    
+
+    def calc_beacon_positions(self, pos_true: np.array) -> List[np.array]:
+        # Calculate the line segments from the robot to each beacon
+        pos_true_shapely = Point(pos_true)
+        beacon_positions = []
+        for beacon in self.beacons:
+            beacon_line = LineString([pos_true_shapely, beacon])
+            intersections = self.intersections(beacon_line)
+            if intersections:
+                continue    # robot cannot see the beacon
+            else:
+                beacon_positions.append(np.array(
+                    [beacon.x - pos_true[0], beacon.y - pos_true[1]]
+                ))
+        return beacon_positions
+
 
 # Example usage:
 
@@ -146,3 +188,4 @@ MAP._add_obstacle(obstacle1)
 # Create and add a line obstacle
 obstacle2 = LineString([(1, 9), (9, 1)])
 MAP._add_obstacle(obstacle2)
+

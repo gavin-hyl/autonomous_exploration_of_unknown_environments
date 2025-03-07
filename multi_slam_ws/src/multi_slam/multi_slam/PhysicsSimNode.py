@@ -71,7 +71,7 @@ class SimplePhysicsSimNode(Node):
         """Find position right before collision"""
         # Check if end position is valid
         robot_poly = self.create_robot_polygon(end_x, end_y, end_theta)
-        if not self.map.intersects(robot_poly):
+        if not self.map.intersections(robot_poly):
             return end_x, end_y, end_theta
         
         # Step backwards from collision point
@@ -85,7 +85,7 @@ class SimplePhysicsSimNode(Node):
             theta = start_theta + alpha * (end_theta - start_theta)
             
             robot_poly = self.create_robot_polygon(x, y, theta)
-            if not self.map.intersects(robot_poly):
+            if not self.map.intersections(robot_poly):
                 return x, y, theta
         
         # Fallback to start position
@@ -195,7 +195,7 @@ class BeaconsNode(Node):
         line = LineString([(robot_x, robot_y), (beacon_x, beacon_y)])
         
         # Check if this line intersects with any obstacle in the map
-        return not self.map.intersects(line)
+        return not self.map.intersections(line)
     
     def add_noise_to_measurement(self, dx, dy):
         """Add Gaussian noise to delta measurements
