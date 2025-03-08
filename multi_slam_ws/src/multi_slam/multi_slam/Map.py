@@ -166,7 +166,7 @@ class Map:
 
     def calc_beacon_positions(self, pos_true: np.array) -> List[np.array]:
         # Calculate the line segments from the robot to each beacon
-        pos_true_shapely = Point(pos_true)
+        pos_true_shapely = Point([pos_true[0], pos_true[1]])
         beacon_positions = []
         for beacon in self.beacons:
             beacon_line = LineString([pos_true_shapely, beacon])
