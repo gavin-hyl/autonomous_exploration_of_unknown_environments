@@ -1,9 +1,10 @@
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3
-from sensor_msgs.msg import PointCloud
+from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2
 from multi_slam.Map import MAP
+from std_msgs.msg import Header
 import numpy as np
 
 
@@ -28,11 +29,20 @@ class PhysicsSimNode(Node):
         self.beacon_std_dev = self.get_parameter('beacon_std_dev').value
 
 
-        self.lidar_pub = self.create_publisher(PointCloud, 'lidar', 10)
-        self.beacon_pub = self.create_publisher(PointCloud, 'beacon', 10)
+        self.lidar_pub = self.create_publisher(PointCloud2, 'lidar', 10)
+        self.beacon_pub = self.create_publisher(PointCloud2, 'beacon', 10)
+
+        self.pos_viz_pub = self.create_publisher(PointCloud2, 'pos_viz', 10)
+        self.beacon_viz_pub = self.create_publisher(PointCloud2, 'beacon_viz', 10)
+        self.lidar_viz_pub = self.create_publisher(PointCloud2, 'lidar_viz', 10)
+
         self.lidar_pub_timer = self.create_timer(0.1, self.lidar_publish_cb)
         self.beacon_pub_timer = self.create_timer(0.1, self.beacon_publish_cb)
         self.sim_update_timer = self.create_timer(0.1, self.sim_update_cb)
+
+
+
+
         self.pos_true = np.array([0, 0, 0])
         self.vel_true = np.array([0, 0, 0])
         self.pos_est = np.array([0, 0, 0])
@@ -42,6 +52,7 @@ class PhysicsSimNode(Node):
         self.accel = np.array([msg.x, msg.y, msg.z])
 
     def _apply_2d_noise(self, points: np.array, std_dev: float) -> np.array:
+        points = np.array(points)
         noise = np.random.normal(0, std_dev, points.shape)
         noise[:, 2] = 0
         return points + noise
@@ -52,14 +63,42 @@ class PhysicsSimNode(Node):
                                                     self.lidar_r_max,
                                                     self.lidar_r_min)
         lidar_points = self._apply_2d_noise(lidar_points, self.lidar_std_dev)
-        lidar_msg = point_cloud2.create_cloud_xyz32(None, lidar_points)
+        header = Header()
+        header.stamp = self.get_clock().now().to_msg()
+        header.frame_id = 'map'
+        lidar_msg = point_cloud2.create_cloud_xyz32(header, lidar_points)
         self.lidar_pub.publish(lidar_msg)
+
+        lidar_points_world = []
+        for point in lidar_points:
+            lidar_points_world.append(np.array([
+                point[0] + self.pos_true[0],
+                point[1] + self.pos_true[1],
+                0,
+            ]))
+        lidar_points_world_msg = point_cloud2.create_cloud_xyz32(header, lidar_points_world)
+        self.lidar_viz_pub.publish(lidar_points_world_msg)
+
 
     def beacon_publish_cb(self):
         beacon_positions = MAP.calc_beacon_positions(self.pos_true)
         beacon_positions = self._apply_2d_noise(beacon_positions, self.beacon_std_dev)
-        beacon_msg = point_cloud2.create_cloud_xyz32(None, beacon_positions)
+        header = Header()
+        header.stamp = self.get_clock().now().to_msg()
+        header.frame_id = 'map'
+        beacon_msg = point_cloud2.create_cloud_xyz32(header, beacon_positions)
         self.beacon_pub.publish(beacon_msg)
+
+        beacon_positions_world = []
+        for point in beacon_positions:
+            beacon_positions_world.append(np.array([
+                point[0] + self.pos_true[0],
+                point[1] + self.pos_true[1],
+                0,
+            ]))
+        beacon_positions_world_msg = point_cloud2.create_cloud_xyz32(header, beacon_positions_world)
+        self.beacon_viz_pub.publish(beacon_positions_world_msg)
+    
 
     def sim_update_cb(self):
         pass
