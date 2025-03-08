@@ -51,11 +51,17 @@ class PhysicsSimNode(Node):
     def control_signal_cb(self, msg: Vector3):
         self.accel = np.array([msg.x, msg.y, msg.z])
 
-    def _apply_2d_noise(self, points: np.array, std_dev: float) -> np.array:
-        points = np.array(points)
-        noise = np.random.normal(0, std_dev, points.shape)
-        noise[:, 2] = 0
-        return points + noise
+    def _apply_2d_noise(self, points: np.array, std_dev: float):
+        noisy_points = []
+        for point in points:
+            noisy_point = np.array([
+                point[0] + np.random.normal(0, std_dev),
+                point[1] + np.random.normal(0, std_dev),
+                0,
+            ])
+            noisy_points.append(noisy_point)
+        return noisy_points
+    
 
     def lidar_publish_cb(self):
         lidar_points = MAP.calc_lidar_point_cloud(self.pos_true,
