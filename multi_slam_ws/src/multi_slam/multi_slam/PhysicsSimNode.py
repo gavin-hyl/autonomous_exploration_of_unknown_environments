@@ -29,6 +29,8 @@ class PhysicsSimNode(Node):
         self.declare_parameter('beacon_std_dev', 0.1)
         self.beacon_std_dev = self.get_parameter('beacon_std_dev').value
 
+        self.declare_parameter('sim_dt', 0.1)
+        self.sim_dt = self.get_parameter('sim_dt').value
 
         self.lidar_pub = self.create_publisher(PointCloud2, 'lidar', 10)
         self.beacon_pub = self.create_publisher(PointCloud2, 'beacon', 10)
@@ -39,10 +41,7 @@ class PhysicsSimNode(Node):
 
         self.lidar_pub_timer = self.create_timer(0.1, self.lidar_publish_cb)
         self.beacon_pub_timer = self.create_timer(0.1, self.beacon_publish_cb)
-        self.sim_update_timer = self.create_timer(0.1, self.sim_update_cb)
-
-
-
+        self.sim_update_timer = self.create_timer(self.sim_dt, self.sim_update_cb)
 
         self.pos_true = np.array([2, 2, 0], dtype=float)
         self.vel_true = np.array([0, 0, 0], dtype=float)
@@ -105,9 +104,9 @@ class PhysicsSimNode(Node):
             ]))
         beacon_positions_world_msg = point_cloud2.create_cloud_xyz32(header, beacon_positions_world)
         self.beacon_viz_pub.publish(beacon_positions_world_msg)
-    
 
-    def sim_update_cb(self):
+    
+    def publish_true_pos(self):
         marker = Marker()
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.header.frame_id = 'map'
@@ -139,7 +138,13 @@ class PhysicsSimNode(Node):
         marker.color.a = 1.0  # Fully opaque
 
         self.pos_viz_pub.publish(marker)
+    
 
+    def sim_update_cb(self):
+        self.pos_true += self.vel_true * self.sim_dt
+        self.vel_true += self.accel * self.sim_dt
+        self.publish_true_pos()
+        # FIXME collision detection
 
 
 def main(args=None):
