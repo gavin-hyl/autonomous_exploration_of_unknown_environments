@@ -135,7 +135,11 @@ class Map:
         
         return intersections
 
-    def calc_lidar_point_cloud(self, pos_true: np.array, delta_theta: float, r_max: float, r_min: float):
+    def calc_lidar_point_cloud(self,
+                               pos_true: np.array,
+                               delta_theta: float,
+                               r_max: float,
+                               r_min: float):
         # Create the line segments for the LiDAR rays
         ray_segments = []
         for theta in range(0, 360, delta_theta):
@@ -157,7 +161,7 @@ class Map:
                 # No intersection, add the ray's endpoint
                 point_cloud.append(Point(ray.coords[-1]))
 
-        return point_cloud
+        return [np.array([p.x - pos_true[0], p.y - pos_true[1], 0]) for p in point_cloud]
     
 
     def calc_beacon_positions(self, pos_true: np.array) -> List[np.array]:
@@ -171,7 +175,7 @@ class Map:
                 continue    # robot cannot see the beacon
             else:
                 beacon_positions.append(np.array(
-                    [beacon.x - pos_true[0], beacon.y - pos_true[1]]
+                    [beacon.x - pos_true[0], beacon.y - pos_true[1], 0]
                 ))
         return beacon_positions
 

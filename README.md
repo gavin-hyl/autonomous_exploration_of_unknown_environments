@@ -21,7 +21,7 @@ Please keep this updated as we code!
     - `sensor_msgs` package, `PointCloud2`.
     - Note that this message must be converted from python format to ROS format using `sensor_msgs_py.point_cloud2`
 - `/beacon_pos`
-    - `multi_slam.msg.Vector3List`, length equal to the number of beacons currently visible beacons.
+    - `sensor_msgs.PointCloud2`. length equal to the number of beacons currently visible beacons.
     - Represents the positions of the beacons from the frame of the robot.
 - `/pos_hat`
     - `Vector3`, with `z = 0`
