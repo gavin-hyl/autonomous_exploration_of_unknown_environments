@@ -193,3 +193,4 @@ MAP._add_obstacle(obstacle1)
 obstacle2 = LineString([(1, 9), (9, 1)])
 MAP._add_obstacle(obstacle2)
 
+MAP._add_beacon(Point(1, 1))

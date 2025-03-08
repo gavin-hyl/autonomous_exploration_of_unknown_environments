@@ -6,6 +6,7 @@ from sensor_msgs_py import point_cloud2
 from multi_slam.Map import MAP
 from std_msgs.msg import Header
 import numpy as np
+from visualization_msgs.msg import Marker
 
 
 class PhysicsSimNode(Node):
@@ -32,7 +33,7 @@ class PhysicsSimNode(Node):
         self.lidar_pub = self.create_publisher(PointCloud2, 'lidar', 10)
         self.beacon_pub = self.create_publisher(PointCloud2, 'beacon', 10)
 
-        self.pos_viz_pub = self.create_publisher(PointCloud2, 'pos_viz', 10)
+        self.pos_viz_pub = self.create_publisher(Marker, 'visualization_marker', 10)
         self.beacon_viz_pub = self.create_publisher(PointCloud2, 'beacon_viz', 10)
         self.lidar_viz_pub = self.create_publisher(PointCloud2, 'lidar_viz', 10)
 
@@ -43,10 +44,10 @@ class PhysicsSimNode(Node):
 
 
 
-        self.pos_true = np.array([0, 0, 0])
-        self.vel_true = np.array([0, 0, 0])
-        self.pos_est = np.array([0, 0, 0])
-        self.accel = np.array([0, 0, 0])
+        self.pos_true = np.array([2, 2, 0], dtype=float)
+        self.vel_true = np.array([0, 0, 0], dtype=float)
+        self.pos_est = np.array([0, 0, 0], dtype=float)
+        self.accel = np.array([0, 0, 0], dtype=float)
     
     def control_signal_cb(self, msg: Vector3):
         self.accel = np.array([msg.x, msg.y, msg.z])
@@ -107,7 +108,37 @@ class PhysicsSimNode(Node):
     
 
     def sim_update_cb(self):
-        pass
+        marker = Marker()
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.header.frame_id = 'map'
+        marker.ns = 'true_position'
+        marker.id = 0
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+
+        # Set the position to the true position
+        marker.pose.position.x = self.pos_true[0]
+        marker.pose.position.y = self.pos_true[1]
+        marker.pose.position.z = self.pos_true[2]
+        
+        # No rotation needed
+        marker.pose.orientation.x = 0.0
+        marker.pose.orientation.y = 0.0
+        marker.pose.orientation.z = 0.0
+        marker.pose.orientation.w = 1.0
+
+        # For a sphere with radius 0.3, set the scale (diameter = 2 * radius)
+        marker.scale.x = 0.6
+        marker.scale.y = 0.6
+        marker.scale.z = 0.6
+
+        # Define the color (for example, green)
+        marker.color.r = 0.0
+        marker.color.g = 1.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0  # Fully opaque
+
+        self.pos_viz_pub.publish(marker)
 
 
 
