@@ -1,0 +1,25 @@
+[0.498s] Invoking command in '/home/tkleeneuron/cs133b-final-project/build/uav_controller_node': PYTHONPATH=/home/tkleeneuron/cs133b-final-project/build/uav_controller_node/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/tkleeneuron/cs133b-final-project/install/uav_controller_node/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated setup.py develop --editable --build-directory /home/tkleeneuron/cs133b-final-project/build/uav_controller_node/build --no-deps symlink_data
+[0.672s] running develop
+[0.672s] /usr/lib/python3/dist-packages/setuptools/command/easy_install.py:158: EasyInstallDeprecationWarning: easy_install command is deprecated. Use build and pip and other standards-based tools.
+[0.672s]   warnings.warn(
+[0.780s] running egg_info
+[0.780s] creating uav_controller_node.egg-info
+[0.780s] writing uav_controller_node.egg-info/PKG-INFO
+[0.781s] writing dependency_links to uav_controller_node.egg-info/dependency_links.txt
+[0.781s] writing entry points to uav_controller_node.egg-info/entry_points.txt
+[0.781s] writing requirements to uav_controller_node.egg-info/requires.txt
+[0.781s] writing top-level names to uav_controller_node.egg-info/top_level.txt
+[0.781s] writing manifest file 'uav_controller_node.egg-info/SOURCES.txt'
+[0.782s] reading manifest file 'uav_controller_node.egg-info/SOURCES.txt'
+[0.782s] writing manifest file 'uav_controller_node.egg-info/SOURCES.txt'
+[0.783s] running build_ext
+[0.783s] Creating /home/tkleeneuron/cs133b-final-project/install/uav_controller_node/lib/python3.10/site-packages/uav-controller-node.egg-link (link to .)
+[0.784s] 
+[0.784s] Installed /home/tkleeneuron/cs133b-final-project/build/uav_controller_node
+[0.784s] running symlink_data
+[0.784s] creating /home/tkleeneuron/cs133b-final-project/install/uav_controller_node/share/ament_index
+[0.784s] creating /home/tkleeneuron/cs133b-final-project/install/uav_controller_node/share/ament_index/resource_index
+[0.784s] creating /home/tkleeneuron/cs133b-final-project/install/uav_controller_node/share/ament_index/resource_index/packages
+[0.784s] symbolically linking /home/tkleeneuron/cs133b-final-project/build/uav_controller_node/resource/uav_controller_node -> /home/tkleeneuron/cs133b-final-project/install/uav_controller_node/share/ament_index/resource_index/packages
+[0.784s] symbolically linking /home/tkleeneuron/cs133b-final-project/build/uav_controller_node/package.xml -> /home/tkleeneuron/cs133b-final-project/install/uav_controller_node/share/uav_controller_node
+[0.802s] Invoked command in '/home/tkleeneuron/cs133b-final-project/build/uav_controller_node' returned '0': PYTHONPATH=/home/tkleeneuron/cs133b-final-project/build/uav_controller_node/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/tkleeneuron/cs133b-final-project/install/uav_controller_node/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated setup.py develop --editable --build-directory /home/tkleeneuron/cs133b-final-project/build/uav_controller_node/build --no-deps symlink_data

@@ -1,0 +1,7 @@
+[console_scripts]
+beacons_node = multi_slam.BeaconsNode:main
+controller_node = multi_slam.ControllerNode:main
+lidar_node = multi_slam.LidarNode:main
+simulation_node = multi_slam.SimulationNode:main
+visualization_node = multi_slam.VisualizationNode:main
+

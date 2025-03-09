@@ -1,3 +1,4 @@
+from glob import glob
 from setuptools import find_packages, setup
 
 package_name = 'multi_slam'
@@ -10,6 +11,7 @@ setup(
         ('share/ament_index/resource_index/packages',
             ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
+        ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -20,7 +22,12 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'visualization = multi_slam.visualization:main'
+            'controller_node = multi_slam.ControllerNode:main',
+            'simulation_node = multi_slam.SimulationNode:main',
+            'beacons_node = multi_slam.BeaconsNode:main',
+            'lidar_node = multi_slam.LidarNode:main',
+            'visualization_node = multi_slam.VisualizationNode:main',
         ],
     },
 )
+
