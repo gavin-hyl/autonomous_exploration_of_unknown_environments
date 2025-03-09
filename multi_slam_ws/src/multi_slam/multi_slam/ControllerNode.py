@@ -1,152 +1,174 @@
+#!/usr/bin/env python3
+
 import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3
-from sensor_msgs.msg import PointCloud
-from geometry_msgs.msg import Point
+from sensor_msgs.msg import PointCloud2
+from sensor_msgs_py import point_cloud2
 import numpy as np
-import math
+from std_msgs.msg import Header
+import sys
+import tty
+import termios
+import select
+import threading
+
 
 class ControllerNode(Node):
     def __init__(self):
-        super().__init__('controller_node')
+        super().__init__("controller_node")
         
-       
-        self.control_signal_pub = self.create_publisher(Vector3, 'control_signal', 10)
-        self.pos_hat_pub = self.create_publisher(Vector3, 'pos_hat', 10)
+        # Publishers
+        self.control_pub = self.create_publisher(Vector3, "control_signal", 10)
+        self.pos_hat_pub = self.create_publisher(Vector3, "pos_hat", 10)
         
-        self.lidar_sub = self.create_subscription(PointCloud, 'lidar_point_cloud', self.lidar_callback, 10)
-        self.beacon_sub = self.create_subscription(PointCloud, 'beacon_pos', self.beacon_callback, 10)
+        # Subscribers
+        self.lidar_sub = self.create_subscription(
+            PointCloud2, "lidar", self.lidar_callback, 10
+        )
+        self.beacon_sub = self.create_subscription(
+            PointCloud2, "beacon", self.beacon_callback, 10
+        )
         
-        self.declare_parameter('control_update_rate', 10.0)  # Hz
-        self.declare_parameter('max_acceleration', 1.0)  # m/s²
-        self.declare_parameter('kp', 1.0)  # Position gain
-        self.declare_parameter('kd', 2.0)  # Velocity gain
+        # Parameters
+        self.declare_parameter("max_acceleration", 1.0)
+        self.max_acceleration = self.get_parameter("max_acceleration").value
         
-        self.control_update_rate = self.get_parameter('control_update_rate').value
-        self.max_acceleration = self.get_parameter('max_acceleration').value
-        self.kp = self.get_parameter('kp').value
-        self.kd = self.get_parameter('kd').value
+        self.declare_parameter("control_frequency", 10.0)  # Hz
+        control_freq = self.get_parameter("control_frequency").value
+        self.control_timer = self.create_timer(1.0 / control_freq, self.control_loop)
         
-        self.position_estimate = np.array([0.0, 0.0, 0.0]) 
-        self.velocity_estimate = np.array([0.0, 0.0, 0.0])
-        self.target_position = np.array([5.0, 5.0, 0.0])  
+        self.declare_parameter("teleop_enabled", True)
+        self.teleop_enabled = self.get_parameter("teleop_enabled").value
         
-        self.last_update_time = self.get_clock().now()
-        self.last_position = np.array([0.0, 0.0, 0.0])
+        # Controller state
+        self.lidar_data = []
+        self.beacon_data = []
+        self.position_estimate = np.array([0.0, 0.0, 0.0])
+        self.control_input = np.array([0.0, 0.0, 0.0])
         
-        # Set up timers
-        self.control_timer = self.create_timer(1.0/self.control_update_rate, self.control_loop)
-        self.state_estimation_timer = self.create_timer(0.05, self.update_state_estimate)  # 20Hz state estimation
-        
-        # Data storage
-        self.lidar_points = []
-        self.beacon_positions = []
-        
-        self.get_logger().info('ControllerNode initialized')
+        # Teleop setup if enabled
+        if self.teleop_enabled:
+            self.get_logger().info("Teleop enabled. Use WASD keys to control the robot.")
+            self.get_logger().info("Press 'q' to quit teleop mode.")
+            self.key_mapping = {
+                'w': np.array([1.0, 0.0, 0.0]),   # Forward (+x)
+                's': np.array([-1.0, 0.0, 0.0]),  # Backward (-x)
+                'a': np.array([0.0, 1.0, 0.0]),   # Left (+y)
+                'd': np.array([0.0, -1.0, 0.0]),  # Right (-y)
+                'x': np.array([0.0, 0.0, 0.0]),   # Stop
+            }
+            
+            # Start teleop input thread
+            self.teleop_thread = threading.Thread(target=self.teleop_input_loop)
+            self.teleop_thread.daemon = True
+            self.teleop_thread.start()
     
     def lidar_callback(self, msg):
-        """Process incoming LiDAR data"""
-        # Extract points from PointCloud message
-        self.lidar_points = []
-        for point in msg.points:
-            self.lidar_points.append(np.array([point.x, point.y, point.z]))
+        """Process incoming LiDAR point cloud data"""
+        self.lidar_data = list(point_cloud2.read_points(msg, field_names=("x", "y", "z")))
         
-        # Use LiDAR for localization (simplified)
-        self.update_position_from_lidar()
+        # Log LiDAR data (debugging)
+        if len(self.lidar_data) > 0:
+            self.get_logger().debug(f"Received {len(self.lidar_data)} LiDAR points")
     
     def beacon_callback(self, msg):
-        """Process incoming beacon data"""
-        # Extract points from PointCloud message
-        self.beacon_positions = []
-        for point in msg.points:
-            self.beacon_positions.append(np.array([point.x, point.y, point.z]))
+        """Process incoming beacon position data"""
+        self.beacon_data = list(point_cloud2.read_points(msg, field_names=("x", "y", "z")))
         
-        # Use beacons for more accurate positioning
-        self.update_position_from_beacons()
+        # Log beacon data (debugging)
+        if len(self.beacon_data) > 0:
+            self.get_logger().debug(f"Received {len(self.beacon_data)} beacon positions")
     
-    def update_position_from_lidar(self):
-        """Update position estimate using LiDAR data"""
-        # Simple implementation - in a real system, you'd use a SLAM algorithm
-        # This is a placeholder for a more sophisticated algorithm
-        if len(self.lidar_points) > 0:
-            # For simplicity, we're just slightly adjusting our estimate based on LiDAR
-            # In a real implementation, you would perform scan matching or other techniques
-            pass
+    def get_key(self):
+        """Get keyboard input without requiring Enter"""
+        old_settings = termios.tcgetattr(sys.stdin)
+        try:
+            tty.setcbreak(sys.stdin.fileno())
+            if select.select([sys.stdin], [], [], 0)[0]:
+                key = sys.stdin.read(1)
+                return key
+        finally:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+        return None
     
-    def update_position_from_beacons(self):
-        """Update position estimate using beacon positions"""
-        # This would be a more accurate position update using trilateration or similar
-        # For this simplified version, we'll assume beacons provide direct position information
-        if len(self.beacon_positions) >= 3:  # Need at least 3 beacons for triangulation
-            # In a real implementation, you would perform trilateration
-            # For simplicity, we're using beacon data as-is (assuming it's already in robot's frame)
-            pass
+    def teleop_input_loop(self):
+        """Thread function to continuously check for keyboard input"""
+        while rclpy.ok():
+            key = self.get_key()
+            if key:
+                if key == 'q':
+                    self.get_logger().info("Exiting teleop mode.")
+                    # Reset control before exiting
+                    self.control_input = np.array([0.0, 0.0, 0.0])
+                    self.publish_control()
+                    break
+                    
+                if key in self.key_mapping:
+                    self.control_input = self.key_mapping[key] * self.max_acceleration
+                    self.get_logger().info(f"Teleop command: {key}")
+                    self.publish_control()
     
-    def update_state_estimate(self):
-        """Update the robot's state estimate (position and velocity)"""
-        current_time = self.get_clock().now()
-        dt = (current_time - self.last_update_time).nanoseconds / 1e9  # Convert to seconds
+    def update_position_estimate(self):
+        """Update the robot's position estimate based on lidar and beacon data"""
+        # In a real SLAM system, this would implement a complex algorithm
+        # to update the robot's position based on sensor data
         
-        # Simple sensor fusion using both LiDAR and beacon data
-        # In a real implementation, you might use a Kalman filter
+        # For now, assuming perfect state estimation with some noise reduction
+        # In a more complex implementation, this would be where your SLAM logic goes
         
-        # For now, we're assuming position updates come directly from sensors
-        # And we're calculating velocity by differentiation
-        
-        if dt > 0:
-            # Estimate velocity using finite difference
-            self.velocity_estimate = (self.position_estimate - self.last_position) / dt
-            
-        # Update tracking variables
-        self.last_position = self.position_estimate.copy()
-        self.last_update_time = current_time
-        
-        # Publish the current position estimate
-        pos_hat_msg = Vector3()
-        pos_hat_msg.x = float(self.position_estimate[0])
-        pos_hat_msg.y = float(self.position_estimate[1])
-        pos_hat_msg.z = float(self.position_estimate[2])
-        self.pos_hat_pub.publish(pos_hat_msg)
-    
-    def set_target_position(self, x, y, z=0.0):
-        """Set a new target position for the robot"""
-        self.target_position = np.array([x, y, z])
-        self.get_logger().info(f'New target set: ({x}, {y}, {z})')
+        # This is a placeholder - in a real system you'd use the sensor data
+        # to update your position estimate
+        self.publish_position_estimate()
     
     def control_loop(self):
-        """Main control loop implementing double integrator dynamics"""
-        # Calculate position error
-        position_error = self.target_position - self.position_estimate
+        """Main control loop - calculate and publish control commands"""
+        # If not in teleop mode, calculate control commands based on sensor data
+        if not self.teleop_enabled:
+            # Implement your autonomous control strategy here
+            # This is where you would compute acceleration commands
+            # based on your positioning algorithm and desired trajectory
+            pass
         
-        # Double integrator control law: u = Kp*e - Kd*v
-        # Where u is acceleration command, e is position error, v is velocity
-        acceleration_command = self.kp * position_error - self.kd * self.velocity_estimate
+        # Update position estimate based on sensor data
+        self.update_position_estimate()
         
-        # Limit acceleration magnitude
-        acceleration_norm = np.linalg.norm(acceleration_command)
-        if acceleration_norm > self.max_acceleration:
-            acceleration_command = acceleration_command * self.max_acceleration / acceleration_norm
-        
-        # Set z-component to 0 (robot moves only in x-y plane)
-        acceleration_command[2] = 0.0
-        
-        # Create and publish control message
-        control_msg = Vector3()
-        control_msg.x = float(acceleration_command[0])
-        control_msg.y = float(acceleration_command[1])
-        control_msg.z = float(acceleration_command[2])
-        self.control_signal_pub.publish(control_msg)
+        # If not being handled by teleop, publish current control input
+        if not self.teleop_enabled:
+            self.publish_control()
+    
+    def publish_control(self):
+        """Publish control command to control_signal topic"""
+        msg = Vector3()
+        msg.x = float(self.control_input[0])
+        msg.y = float(self.control_input[1])
+        msg.z = float(self.control_input[2])
+        self.control_pub.publish(msg)
+    
+    def publish_position_estimate(self):
+        """Publish the current position estimate to pos_hat topic"""
+        msg = Vector3()
+        msg.x = float(self.position_estimate[0])
+        msg.y = float(self.position_estimate[1])
+        msg.z = float(self.position_estimate[2])
+        self.pos_hat_pub.publish(msg)
+
 
 def main(args=None):
     rclpy.init(args=args)
-    node = ControllerNode()
+    controller_node = ControllerNode()
+    
     try:
-        rclpy.spin(node)
+        rclpy.spin(controller_node)
     except KeyboardInterrupt:
-        print('Controller node shutting down...')
+        controller_node.get_logger().info("Controller node stopped by keyboard interrupt")
+    except Exception as e:
+        controller_node.get_logger().error(f"Error in controller node: {str(e)}")
     finally:
-        node.destroy_node()
+        # Clean shutdown
+        controller_node.destroy_node()
         rclpy.shutdown()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     main()

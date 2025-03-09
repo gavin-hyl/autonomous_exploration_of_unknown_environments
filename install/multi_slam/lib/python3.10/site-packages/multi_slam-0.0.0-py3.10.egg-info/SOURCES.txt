@@ -9,12 +9,10 @@ setup.py
 ../../../build/multi_slam/multi_slam.egg-info/requires.txt
 ../../../build/multi_slam/multi_slam.egg-info/top_level.txt
 ../../../build/multi_slam/multi_slam.egg-info/zip-safe
-multi_slam/BeaconsNode.py
+launch/demo.launch.py
 multi_slam/ControllerNode.py
-multi_slam/LidarNode.py
-multi_slam/SimulationNode.py
-multi_slam/VisualizationNode.py
-multi_slam/WorldMap.py
+multi_slam/Map.py
+multi_slam/PhysicsSimNode.py
 multi_slam/__init__.py
 resource/multi_slam
 test/test_copyright.py

@@ -1,5 +1,6 @@
 from glob import glob
 from setuptools import find_packages, setup
+from glob import glob
 
 package_name = 'multi_slam'
 
@@ -8,8 +9,6 @@ setup(
     version='0.0.0',
     packages=find_packages(exclude=['test']),
     data_files=[
-        ('share/ament_index/resource_index/packages',
-            ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
     ],
@@ -22,11 +21,8 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'controller_node = multi_slam.ControllerNode:main',
-            'simulation_node = multi_slam.SimulationNode:main',
-            'beacons_node = multi_slam.BeaconsNode:main',
-            'lidar_node = multi_slam.LidarNode:main',
-            'visualization_node = multi_slam.VisualizationNode:main',
+            # 'visualization = multi_slam.visualization:main'
+            'physics_sim = multi_slam.PhysicsSimNode:main',
         ],
     },
 )
