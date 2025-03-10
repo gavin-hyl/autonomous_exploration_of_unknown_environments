@@ -8,7 +8,7 @@ from std_msgs.msg import Header
 import numpy as np
 from visualization_msgs.msg import Marker
 import math
-from shapely.geometry import LineString, Point, Polygon
+from shapely.geometry import Polygon
 
 
 class PhysicsSimNode(Node):
