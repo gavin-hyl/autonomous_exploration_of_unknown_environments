@@ -72,10 +72,10 @@ class Map:
 
         - For a Point, returns [geom].
         - For a MultiPoint, returns all its points.
-        - For LineString or LinearRing, returns the midpoint.
-        - For MultiLineString, returns the midpoint of each line.
+        - For LineString or LinearRing, returns all vertices of the line.
+        - For MultiLineString, returns all vertices from each line.
         - For GeometryCollection, recursively processes each geometry.
-        - For other types (e.g., Polygon), returns the centroid as a fallback.
+        - For Polygon, returns vertices along the boundary.
 
         Args:
             geom (BaseGeometry): The geometry to extract points from.
@@ -92,18 +92,20 @@ class Map:
         elif geom.geom_type == 'MultiPoint':
             points.extend(list(geom.geoms))
         elif geom.geom_type in ['LineString', 'LinearRing']:
-            # Compute the midpoint of the line
-            mid: Point = geom.interpolate(geom.length / 2)
-            points.append(mid)
+            # Return all vertices of the line instead of just the midpoint
+            points.extend([Point(p) for p in geom.coords])
         elif geom.geom_type == 'MultiLineString':
             for line in geom.geoms:
-                mid = line.interpolate(line.length / 2)
-                points.append(mid)
+                points.extend([Point(p) for p in line.coords])
+        elif geom.geom_type == 'Polygon':
+            # Return points along the boundary instead of just the centroid
+            boundary = geom.boundary
+            points.extend([Point(p) for p in boundary.coords])
         elif geom.geom_type == 'GeometryCollection':
             for g in geom.geoms:
                 points.extend(self._extract_points(g))
         else:
-            # For geometries like Polygon, use the centroid as a fallback.
+            # For other geometries, use the centroid as a fallback
             points.append(geom.centroid)
         return points
 
@@ -149,13 +151,15 @@ class Map:
         
         # Find closest intersection points
         point_cloud = []
+        robot_pos = Point(pos_true[0], pos_true[1])
         for ray in ray_segments:
             intersections = self.intersections(ray)
             if intersections:
                 # Find the closest intersection point
-                closest_point = min(intersections, key=lambda p: p.distance(Point(pos_true)))
+                closest_point = min(intersections, key=lambda p: robot_pos.distance(p))
                 # Discard points outside the valid range
-                if r_min <= closest_point.distance(Point(pos_true)) <= r_max:
+                distance = robot_pos.distance(closest_point)
+                if r_min <= distance <= r_max:
                     point_cloud.append(closest_point)
             else:
                 # No intersection, add the ray's endpoint
