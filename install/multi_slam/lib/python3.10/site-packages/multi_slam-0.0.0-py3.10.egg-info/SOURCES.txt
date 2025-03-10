@@ -10,6 +10,7 @@ setup.py
 ../../../build/multi_slam/multi_slam.egg-info/top_level.txt
 ../../../build/multi_slam/multi_slam.egg-info/zip-safe
 launch/demo.launch.py
+launch/multi_slam_launch.py
 multi_slam/ControllerNode.py
 multi_slam/Map.py
 multi_slam/PhysicsSimNode.py

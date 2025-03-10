@@ -1,18 +1,4 @@
-#!/usr/bin/env python3
-
-import rclpy
-from rclpy.node import Node
-from geometry_msgs.msg import Vector3
-from sensor_msgs.msg import PointCloud2
-from sensor_msgs_py import point_cloud2
 import numpy as np
-from std_msgs.msg import Header
-import sys
-import tty
-import termios
-import select
-import threading
-
 
 class ControllerNode(Node):
     def __init__(self):
@@ -44,7 +30,24 @@ class ControllerNode(Node):
         # Controller state
         self.lidar_data = []
         self.beacon_data = []
-        self.position_estimate = np.array([0.0, 0.0, 0.0])
+        
+        # Kalman Filter state initialization
+        self.position_estimate = np.array([0.0, 0.0, 0.0, 0.0])  # [x, y, vx, vy]
+        self.P = np.eye(4) * 100 # Covariance matrix, start with high uncertainty
+        
+        # Kalman Filter matrices (double integrator model)
+        self.F = np.eye(4)  # State transition matrix (double integrator model)
+        self.F[0, 2] = 1.0  # x = x + vx * dt
+        self.F[1, 3] = 1.0  # y = y + vy * dt
+        self.dt = 0.1  # Time step (for simplicity, you can adjust this value)
+        
+        # Measurement model (we can measure the position relative to beacon)
+        self.H = np.array([[1, 0, 0, 0],  # Measure x
+                           [0, 1, 0, 0]])  # Measure y
+        
+        self.R = np.eye(2) * 1e-2  # Measurement noise covariance (adjust as necessary)
+        self.Q = np.eye(4) * 1e-5  # Process noise covariance (adjust as necessary)
+        
         self.control_input = np.array([0.0, 0.0, 0.0])
         
         # Teleop setup if enabled
@@ -67,73 +70,52 @@ class ControllerNode(Node):
     def lidar_callback(self, msg):
         """Process incoming LiDAR point cloud data"""
         self.lidar_data = list(point_cloud2.read_points(msg, field_names=("x", "y", "z")))
-        
-        # Log LiDAR data (debugging)
-        if len(self.lidar_data) > 0:
-            self.get_logger().debug(f"Received {len(self.lidar_data)} LiDAR points")
     
     def beacon_callback(self, msg):
         """Process incoming beacon position data"""
         self.beacon_data = list(point_cloud2.read_points(msg, field_names=("x", "y", "z")))
-        
-        # Log beacon data (debugging)
-        if len(self.beacon_data) > 0:
-            self.get_logger().debug(f"Received {len(self.beacon_data)} beacon positions")
-    
-    def get_key(self):
-        """Get keyboard input without requiring Enter"""
-        old_settings = termios.tcgetattr(sys.stdin)
-        try:
-            tty.setcbreak(sys.stdin.fileno())
-            if select.select([sys.stdin], [], [], 0)[0]:
-                key = sys.stdin.read(1)
-                return key
-        finally:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
-        return None
-    
-    def teleop_input_loop(self):
-        """Thread function to continuously check for keyboard input"""
-        while rclpy.ok():
-            key = self.get_key()
-            if key:
-                if key == 'q':
-                    self.get_logger().info("Exiting teleop mode.")
-                    # Reset control before exiting
-                    self.control_input = np.array([0.0, 0.0, 0.0])
-                    self.publish_control()
-                    break
-                    
-                if key in self.key_mapping:
-                    self.control_input = self.key_mapping[key] * self.max_acceleration
-                    self.get_logger().info(f"Teleop command: {key}")
-                    self.publish_control()
     
     def update_position_estimate(self):
-        """Update the robot's position estimate based on lidar and beacon data"""
-        # In a real SLAM system, this would implement a complex algorithm
-        # to update the robot's position based on sensor data
+        """Update the robot's position estimate using a double integrator Kalman filter"""
+        # Predict the next state
+        self.position_estimate = np.dot(self.F, self.position_estimate)
+        self.P = np.dot(np.dot(self.F, self.P), self.F.T) + self.Q
         
-        # For now, assuming perfect state estimation with some noise reduction
-        # In a more complex implementation, this would be where your SLAM logic goes
+        # Beacon-based position update (relative position from LiDAR)
+        if len(self.lidar_data) > 0 and len(self.beacon_data) > 0:
+            # Get the relative position of the robot to the beacon
+            # Here we assume the first beacon in the list is the one we want
+            beacon_position = np.array(self.beacon_data[0][:2])  # Beacon position [x, y]
+            robot_position = np.array(self.lidar_data[0][:2])  # Robot's position detected via LiDAR
+            
+            # Calculate relative position (robot position w.r.t beacon)
+            relative_position = robot_position - beacon_position
+            
+            # Update the state with the relative position
+            z = relative_position  # Measurement vector (relative position)
+            
+            # Kalman Update
+            S = np.dot(np.dot(self.H, self.P), self.H.T) + self.R
+            K = np.dot(np.dot(self.P, self.H.T), np.linalg.inv(S))
+            y = z - np.dot(self.H, self.position_estimate[:2])  # Measurement residual
+            self.position_estimate[:2] = self.position_estimate[:2] + np.dot(K, y)
+            
+            # Update the covariance
+            self.P = np.dot(np.eye(4) - np.dot(K, self.H), self.P)
         
-        # This is a placeholder - in a real system you'd use the sensor data
-        # to update your position estimate
+        # Publish the updated position estimate
         self.publish_position_estimate()
     
     def control_loop(self):
         """Main control loop - calculate and publish control commands"""
-        # If not in teleop mode, calculate control commands based on sensor data
         if not self.teleop_enabled:
-            # Implement your autonomous control strategy here
-            # This is where you would compute acceleration commands
-            # based on your positioning algorithm and desired trajectory
+            # Autonomous control logic (not implemented here)
             pass
         
         # Update position estimate based on sensor data
         self.update_position_estimate()
         
-        # If not being handled by teleop, publish current control input
+        # Publish control input
         if not self.teleop_enabled:
             self.publish_control()
     

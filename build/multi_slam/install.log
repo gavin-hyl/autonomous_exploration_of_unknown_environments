@@ -8,6 +8,7 @@
 /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages/multi_slam/__pycache__/Map.cpython-310.pyc
 /home/tkleeneuron/cs133b-final-project/install/multi_slam/share/multi_slam/package.xml
 /home/tkleeneuron/cs133b-final-project/install/multi_slam/share/multi_slam/launch/demo.launch.py
+/home/tkleeneuron/cs133b-final-project/install/multi_slam/share/multi_slam/launch/multi_slam_launch.py
 /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages/multi_slam-0.0.0-py3.10.egg-info/dependency_links.txt
 /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages/multi_slam-0.0.0-py3.10.egg-info/PKG-INFO
 /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages/multi_slam-0.0.0-py3.10.egg-info/entry_points.txt
@@ -15,8 +16,4 @@
 /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages/multi_slam-0.0.0-py3.10.egg-info/zip-safe
 /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages/multi_slam-0.0.0-py3.10.egg-info/requires.txt
 /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages/multi_slam-0.0.0-py3.10.egg-info/top_level.txt
-/home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam/beacons_node
-/home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam/controller_node
-/home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam/lidar_node
-/home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam/simulation_node
-/home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam/visualization_node
+/home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam/physics_sim
