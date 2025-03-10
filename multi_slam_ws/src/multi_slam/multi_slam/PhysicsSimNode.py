@@ -36,9 +36,6 @@ class PhysicsSimNode(Node):
         self.declare_parameter("pos_std_dev_dist", 0.1)
         self.pos_std_dev_dist = self.get_parameter("pos_std_dev_dist").value
 
-        self.declare_parameter("pos_std_dev_theta", 0.05)
-        self.pos_std_dev_theta = self.get_parameter("pos_std_dev_theta").value
-
         # Robot dimensions parameters
         self.declare_parameter("robot_length", 0.4)
         self.robot_length = self.get_parameter("robot_length").value
@@ -73,7 +70,8 @@ class PhysicsSimNode(Node):
 
     def control_signal_cb(self, msg: Vector3):
         # Update velocity directly instead of using acceleration
-        self.vel_true = np.array([msg.x, msg.y, msg.z])
+        # Set z to 0 to ensure we're only working in 2D
+        self.vel_true = np.array([msg.x, msg.y, 0.0])
 
     def _apply_2d_noise(self, points: np.array, std_dev: float):
         noisy_points = []
@@ -83,19 +81,6 @@ class PhysicsSimNode(Node):
                     point[0] + np.random.normal(0, std_dev),
                     point[1] + np.random.normal(0, std_dev),
                     0,
-                ]
-            )
-            noisy_points.append(noisy_point)
-        return noisy_points
-
-    def _apply_3d_noise(self, points: np.array, std_dev_dist: float, std_dev_theta: float):
-        noisy_points = []
-        for point in points:
-            noisy_point = np.array(
-                [
-                    point[0] + np.random.normal(0, std_dev_dist),
-                    point[1] + np.random.normal(0, std_dev_dist),
-                    point[2] + np.random.normal(0, std_dev_theta),
                 ]
             )
             noisy_points.append(noisy_point)
@@ -136,31 +121,32 @@ class PhysicsSimNode(Node):
     def check_collision(self, current_pos, intended_pos):
         """
         Check if there would be a collision when moving from current_pos to intended_pos
+        Robot is modeled as a point with a circular buffer
         Returns the position right before collision, or intended_pos if no collision
-        Uses incremental movement to find a safe position
         """
-        # Create a robot polygon at the intended position
-        robot_poly = self.create_robot_polygon(intended_pos)
+        # Create a point representing the robot at the intended position with a buffer
+        robot_radius = max(self.robot_length, self.robot_width) / 2
+        robot_point = Point(intended_pos[0], intended_pos[1]).buffer(robot_radius)
         
-        # Check if the polygon intersects with any obstacles or the boundary
+        # Check if the buffered point intersects with any obstacles or the boundary
         obstacles_intersect = False
         for obstacle in MAP.obstacles:
-            if robot_poly.intersects(obstacle):
+            if robot_point.intersects(obstacle):
                 obstacles_intersect = True
                 break
                 
-        # Check boundary intersection (needs to be handled differently as it's a LineString)
-        boundary_intersect = robot_poly.intersects(MAP.boundary)
+        # Check boundary intersection
+        boundary_intersect = robot_point.intersects(MAP.boundary)
         
         # If no collision, return the intended position
         if not obstacles_intersect and not boundary_intersect:
             return intended_pos
             
-        # Calculate direction from current to intended position
+        # Calculate direction from current to intended position (only x and y)
         direction = np.array([
             intended_pos[0] - current_pos[0],
             intended_pos[1] - current_pos[1],
-            intended_pos[2] - current_pos[2]
+            0.0  # No z direction since we're in 2D
         ])
         
         # Calculate distance between current and intended position
@@ -176,7 +162,6 @@ class PhysicsSimNode(Node):
             direction[1] /= distance
         
         # Start from current position and move incrementally
-        test_pos = np.array(current_pos)
         increment_distance = 0.0
         
         # Try positions incrementally from current to intended
@@ -192,20 +177,20 @@ class PhysicsSimNode(Node):
             test_pos = np.array([
                 current_pos[0] + direction[0] * increment_distance,
                 current_pos[1] + direction[1] * increment_distance,
-                current_pos[2] + (intended_pos[2] - current_pos[2]) * (increment_distance / distance)
+                0.0  # Always 0 for z component
             ])
             
-            # Create robot polygon at test position
-            test_poly = self.create_robot_polygon(test_pos)
+            # Create robot point at test position
+            test_point = Point(test_pos[0], test_pos[1]).buffer(robot_radius)
             
             # Check for collisions at test position
             test_collides = False
             for obstacle in MAP.obstacles:
-                if test_poly.intersects(obstacle):
+                if test_point.intersects(obstacle):
                     test_collides = True
                     break
                     
-            if test_poly.intersects(MAP.boundary):
+            if test_point.intersects(MAP.boundary):
                 test_collides = True
                 
             # If no collision at this test position, return it
@@ -340,9 +325,9 @@ class PhysicsSimNode(Node):
         # Check for collisions and get the safe position
         self.pos_true = self.check_collision(self.pos_true, intended_pos)
         
-        # Calculate noisy position
+        # Calculate noisy position using 2D noise instead of 3D
         points = [self.pos_true]
-        noisy_points = self._apply_3d_noise(points, self.pos_std_dev_dist, self.pos_std_dev_theta)
+        noisy_points = self._apply_2d_noise(points, self.pos_std_dev_dist)
         self.pos_noisy = noisy_points[0]
         
         self.publish_true_pos()
