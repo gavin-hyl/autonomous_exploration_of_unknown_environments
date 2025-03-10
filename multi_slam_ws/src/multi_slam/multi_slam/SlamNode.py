@@ -6,6 +6,7 @@ from geometry_msgs.msg import PoseStamped, Vector3
 from multi_slam.Map import MAP
 import numpy as np
 from scipy.linalg import expm
+from sensor_msgs_py.point_cloud2 import point_cloud2
 
 class SLAMNode(Node):
     def __init__(self):
