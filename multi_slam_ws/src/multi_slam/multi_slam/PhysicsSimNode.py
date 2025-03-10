@@ -56,8 +56,8 @@ class PhysicsSimNode(Node):
         self.lidar_pub = self.create_publisher(PointCloud2, "lidar", 10)
         self.beacon_pub = self.create_publisher(PointCloud2, "beacon", 10)
 
-        self.pos_viz_pub = self.create_publisher(Marker, "visualization_marker", 10)
-        self.pos_noisy_viz_pub = self.create_publisher(Marker, "visualization_marker_noisy", 10)
+        self.pos_ideal_viz_pub = self.create_publisher(Marker, "visualization_marker_ideal", 10)
+        self.pos_true_viz_pub = self.create_publisher(Marker, "visualization_marker_true", 10)
         self.beacon_viz_pub = self.create_publisher(PointCloud2, "beacon_viz", 10)
         self.lidar_viz_pub = self.create_publisher(PointCloud2, "lidar_viz", 10)
 
@@ -65,15 +65,18 @@ class PhysicsSimNode(Node):
         self.beacon_pub_timer = self.create_timer(0.1, self.beacon_publish_cb)
         self.sim_update_timer = self.create_timer(self.sim_dt, self.sim_update_cb)
 
-        self.pos_true = np.array([2, 2, 0], dtype=float)
-        self.pos_noisy = np.array([2, 2, 0], dtype=float)
+        self.pos_ideal = np.array([2, 2, 0], dtype=float)  # Ideal position without noise
+        self.pos_true = np.array([2, 2, 0], dtype=float)   # True physical position with noise
         self.vel_true = np.array([0, 0, 0], dtype=float)
         self.pos_est = np.array([0, 0, 0], dtype=float)
         self.accel = np.array([0, 0, 0], dtype=float)
+        self.control_signal_received = False  # Flag to track if control signal was received
 
     def control_signal_cb(self, msg: Vector3):
         # Update velocity directly instead of using acceleration
-        self.vel_true = np.array([msg.x, msg.y, msg.z])
+        # Set z to 0 to ensure we're only working in 2D
+        self.vel_true = np.array([msg.x, msg.y, 0.0])
+        self.control_signal_received = True  # Set flag indicating control was received
 
     def _apply_2d_noise(self, points: np.array, std_dev: float):
         noisy_points = []
@@ -216,18 +219,24 @@ class PhysicsSimNode(Node):
         return current_pos
 
     def lidar_publish_cb(self):
-        lidar_points = MAP.calc_lidar_point_cloud(
-            self.pos_true, self.lidar_delta_theta, self.lidar_r_max, self.lidar_r_min
+        # Use the true position (with noise) for LiDAR measurements
+        points = MAP.calc_lidar_point_cloud(
+            self.pos_true,
+            self.lidar_delta_theta,
+            self.lidar_r_max,
+            self.lidar_r_min,
         )
-        lidar_points = self._apply_2d_noise(lidar_points, self.lidar_std_dev)
+        # Apply additional sensor noise to the points
+        noisy_points = self._apply_2d_noise(points, self.lidar_std_dev)
+        
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "map"
-        lidar_msg = point_cloud2.create_cloud_xyz32(header, lidar_points)
+        lidar_msg = point_cloud2.create_cloud_xyz32(header, noisy_points)
         self.lidar_pub.publish(lidar_msg)
 
         lidar_points_world = []
-        for point in lidar_points:
+        for point in noisy_points:
             lidar_points_world.append(
                 np.array(
                     [
@@ -243,16 +252,19 @@ class PhysicsSimNode(Node):
         self.lidar_viz_pub.publish(lidar_points_world_msg)
 
     def beacon_publish_cb(self):
-        beacon_positions = MAP.calc_beacon_positions(self.pos_true)
-        beacon_positions = self._apply_2d_noise(beacon_positions, self.beacon_std_dev)
+        # Use the true position (with noise) for beacon measurements
+        points = MAP.calc_beacon_positions(self.pos_true)
+        # Apply sensor noise
+        noisy_points = self._apply_2d_noise(points, self.beacon_std_dev)
+        
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "map"
-        beacon_msg = point_cloud2.create_cloud_xyz32(header, beacon_positions)
+        beacon_msg = point_cloud2.create_cloud_xyz32(header, noisy_points)
         self.beacon_pub.publish(beacon_msg)
 
         beacon_positions_world = []
-        for point in beacon_positions:
+        for point in noisy_points:
             beacon_positions_world.append(
                 np.array(
                     [
@@ -267,12 +279,47 @@ class PhysicsSimNode(Node):
         )
         self.beacon_viz_pub.publish(beacon_positions_world_msg)
 
+    def publish_ideal_pos(self):
+        """Publish the ideal position marker (theoretical position without noise)"""
+        marker = Marker()
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.header.frame_id = "map"
+        marker.ns = "ideal_position"
+        marker.id = 0
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+
+        # Set the position to the ideal position
+        marker.pose.position.x = self.pos_ideal[0]
+        marker.pose.position.y = self.pos_ideal[1]
+        marker.pose.position.z = self.pos_ideal[2]
+
+        # No rotation needed
+        marker.pose.orientation.x = 0.0
+        marker.pose.orientation.y = 0.0
+        marker.pose.orientation.z = 0.0
+        marker.pose.orientation.w = 1.0
+
+        # For a sphere with radius 0.3
+        marker.scale.x = 0.6
+        marker.scale.y = 0.6
+        marker.scale.z = 0.6
+
+        # Blue color for ideal position
+        marker.color.r = 0.0
+        marker.color.g = 0.0
+        marker.color.b = 1.0
+        marker.color.a = 1.0  # Fully opaque
+
+        self.pos_ideal_viz_pub.publish(marker)
+
     def publish_true_pos(self):
+        """Publish the true position marker (actual physical position with noise)"""
         marker = Marker()
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.header.frame_id = "map"
         marker.ns = "true_position"
-        marker.id = 0
+        marker.id = 1
         marker.type = Marker.SPHERE
         marker.action = Marker.ADD
 
@@ -287,66 +334,48 @@ class PhysicsSimNode(Node):
         marker.pose.orientation.z = 0.0
         marker.pose.orientation.w = 1.0
 
-        # For a sphere with radius 0.3, set the scale (diameter = 2 * radius)
+        # For a sphere with radius 0.3
         marker.scale.x = 0.6
         marker.scale.y = 0.6
         marker.scale.z = 0.6
 
-        # Define the color (for example, green)
+        # Green color for true position
         marker.color.r = 0.0
         marker.color.g = 1.0
         marker.color.b = 0.0
         marker.color.a = 1.0  # Fully opaque
 
-        self.pos_viz_pub.publish(marker)
-
-    def publish_noisy_pos(self):
-        marker = Marker()
-        marker.header.stamp = self.get_clock().now().to_msg()
-        marker.header.frame_id = "map"
-        marker.ns = "noisy_position"
-        marker.id = 1
-        marker.type = Marker.SPHERE
-        marker.action = Marker.ADD
-
-        # Set the position to the noisy position
-        marker.pose.position.x = self.pos_noisy[0]
-        marker.pose.position.y = self.pos_noisy[1]
-        marker.pose.position.z = self.pos_noisy[2]
-
-        # No rotation needed
-        marker.pose.orientation.x = 0.0
-        marker.pose.orientation.y = 0.0
-        marker.pose.orientation.z = 0.0
-        marker.pose.orientation.w = 1.0
-
-        # For a sphere with radius 0.3, set the scale (diameter = 2 * radius)
-        marker.scale.x = 0.6
-        marker.scale.y = 0.6
-        marker.scale.z = 0.6
-
-        # Define the color (red for noisy pos)
-        marker.color.r = 1.0
-        marker.color.g = 0.0
-        marker.color.b = 0.0
-        marker.color.a = 1.0  # Fully opaque
-
-        self.pos_noisy_viz_pub.publish(marker)
+        self.pos_true_viz_pub.publish(marker)
 
     def sim_update_cb(self):
-        # First calculate the intended new position
-        intended_pos = self.pos_true + self.vel_true * self.sim_dt
+        # First calculate the intended new position (ideal position)
+        intended_pos = self.pos_ideal + self.vel_true * self.sim_dt
         
-        # Check for collisions and get the safe position
-        self.pos_true = self.check_collision(self.pos_true, intended_pos)
+        # Check if control signal was received
+        if self.control_signal_received:
+            # Update the ideal position
+            self.pos_ideal = intended_pos
+            
+            # Calculate true position with noise (only when control is received)
+            points = [self.pos_ideal]
+            noisy_points = self._apply_2d_noise(points, self.pos_std_dev_dist)
+            self.pos_true = noisy_points[0]
+            
+            # Reset the control signal flag
+            self.control_signal_received = False
+        else:
+            # Only update ideal position, true position stays the same (no new noise)
+            self.pos_ideal = intended_pos
         
-        # Calculate noisy position
-        points = [self.pos_true]
-        noisy_points = self._apply_3d_noise(points, self.pos_std_dev_dist, self.pos_std_dev_theta)
-        self.pos_noisy = noisy_points[0]
+        # Check for collisions using the true physical position
+        # Calculate potential new position after movement
+        potential_pos = self.pos_true + self.vel_true * self.sim_dt
+        # Check collision and get safe position
+        self.pos_true = self.check_collision(self.pos_true, potential_pos)
         
+        # Publish markers and sensor data
+        self.publish_ideal_pos()
         self.publish_true_pos()
-        self.publish_noisy_pos()
 
 
 def main(args=None):
