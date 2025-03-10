@@ -22,6 +22,8 @@ setup(
         'console_scripts': [
             # 'visualization = multi_slam.visualization:main'
             'physics_sim = multi_slam.PhysicsSimNode:main',
+            'controller_node = multi_slam.ControllerNode:main',
+            'teleop_keyboard = multi_slam.teleop_keyboard:main',
         ],
     },
 )

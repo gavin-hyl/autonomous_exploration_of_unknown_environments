@@ -10,6 +10,12 @@ def generate_launch_description():
             output='screen'
         ),
         Node(
+            package='multi_slam',
+            executable='controller_node',
+            name='controller_node',
+            output='screen'
+        ),
+        Node(
             package='rviz2',
             executable='rviz2',
             name='rviz2',

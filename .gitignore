@@ -1,3 +1,13 @@
-multi_slam_ws/build/*
-multi_slam_ws/install/*
-multi_slam_ws/log/*
+# Build and install directories
+build/
+install/
+log/
+
+# Python byte-compiled files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+*.egg-info/
+*.egg
