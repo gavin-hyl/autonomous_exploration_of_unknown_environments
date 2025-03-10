@@ -186,11 +186,13 @@ class Map:
 MAP = Map(0, 0, 10, 10)
 
 # Create and add a polygon obstacle
-obstacle1 = Polygon([(3, 3), (5, 3), (5, 5), (3, 5)])
-MAP._add_obstacle(obstacle1)
+obstacle = Polygon([
+    (3, 3), (5, 3), (5, 5), (3, 5)
+])
+MAP._add_obstacle(obstacle)
 
 # Create and add a line obstacle
-obstacle2 = LineString([(1, 9), (9, 1)])
-MAP._add_obstacle(obstacle2)
+# obstacle2 = LineString([(1, 9), (9, 1)])
+# MAP._add_obstacle(obstacle2)
 
 MAP._add_beacon(Point(1, 1))
