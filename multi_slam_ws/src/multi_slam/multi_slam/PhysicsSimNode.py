@@ -348,30 +348,34 @@ class PhysicsSimNode(Node):
         self.pos_true_viz_pub.publish(marker)
 
     def sim_update_cb(self):
-        # First calculate the intended new position (ideal position)
-        intended_pos = self.pos_ideal + self.vel_true * self.sim_dt
+        # Check if there's any movement (non-zero velocity)
+        is_moving = not np.allclose(self.vel_true, [0, 0, 0], atol=1e-6)
         
-        # Check if control signal was received
-        if self.control_signal_received:
-            # Update the ideal position
-            self.pos_ideal = intended_pos
+        if is_moving:
+            # Calculate the intended new position (ideal position)
+            intended_pos = self.pos_ideal + self.vel_true * self.sim_dt
             
-            # Calculate true position with noise (only when control is received)
-            points = [self.pos_ideal]
-            noisy_points = self._apply_2d_noise(points, self.pos_std_dev_dist)
-            self.pos_true = noisy_points[0]
+            # Check if control signal was received
+            if self.control_signal_received:
+                # Update the ideal position
+                self.pos_ideal = intended_pos
+                
+                # Calculate true position with noise (only when control is received and robot is moving)
+                points = [self.pos_ideal]
+                noisy_points = self._apply_2d_noise(points, self.pos_std_dev_dist)
+                self.pos_true = noisy_points[0]
+                
+                # Reset the control signal flag
+                self.control_signal_received = False
+            else:
+                # Only update ideal position, true position stays the same (no new noise)
+                self.pos_ideal = intended_pos
             
-            # Reset the control signal flag
-            self.control_signal_received = False
-        else:
-            # Only update ideal position, true position stays the same (no new noise)
-            self.pos_ideal = intended_pos
-        
-        # Check for collisions using the true physical position
-        # Calculate potential new position after movement
-        potential_pos = self.pos_true + self.vel_true * self.sim_dt
-        # Check collision and get safe position
-        self.pos_true = self.check_collision(self.pos_true, potential_pos)
+            # Check for collisions using the true physical position
+            # Calculate potential new position after movement
+            potential_pos = self.pos_true + self.vel_true * self.sim_dt
+            # Check collision and get safe position
+            self.pos_true = self.check_collision(self.pos_true, potential_pos)
         
         # Publish markers and sensor data
         self.publish_ideal_pos()
