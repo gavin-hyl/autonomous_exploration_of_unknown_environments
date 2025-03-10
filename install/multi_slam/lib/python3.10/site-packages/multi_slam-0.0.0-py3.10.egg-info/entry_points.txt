@@ -1,0 +1,3 @@
+[console_scripts]
+physics_sim = multi_slam.PhysicsSimNode:main
+

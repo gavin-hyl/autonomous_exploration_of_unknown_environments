@@ -1,0 +1,9 @@
+source;share/uav_controller_node/hook/pythonpath.ps1
+source;share/uav_controller_node/hook/pythonpath.dsv
+source;share/uav_controller_node/hook/pythonpath.sh
+source;share/uav_controller_node/hook/ament_prefix_path.ps1
+source;share/uav_controller_node/hook/ament_prefix_path.dsv
+source;share/uav_controller_node/hook/ament_prefix_path.sh
+source;../../build/uav_controller_node/share/uav_controller_node/hook/pythonpath_develop.ps1
+source;../../build/uav_controller_node/share/uav_controller_node/hook/pythonpath_develop.dsv
+source;../../build/uav_controller_node/share/uav_controller_node/hook/pythonpath_develop.sh

@@ -1,0 +1,26 @@
+[0.565s] Invoking command in '/home/tkleeneuron/cs133b-final-project/multi_slam_ws/src/multi_slam': PYTHONPATH=/home/tkleeneuron/cs133b-final-project/build/multi_slam/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../../build/multi_slam build --build-base /home/tkleeneuron/cs133b-final-project/build/multi_slam/build install --record /home/tkleeneuron/cs133b-final-project/build/multi_slam/install.log --single-version-externally-managed install_data
+[0.779s] running egg_info
+[0.779s] writing ../../../build/multi_slam/multi_slam.egg-info/PKG-INFO
+[0.780s] writing dependency_links to ../../../build/multi_slam/multi_slam.egg-info/dependency_links.txt
+[0.780s] writing entry points to ../../../build/multi_slam/multi_slam.egg-info/entry_points.txt
+[0.780s] writing requirements to ../../../build/multi_slam/multi_slam.egg-info/requires.txt
+[0.780s] writing top-level names to ../../../build/multi_slam/multi_slam.egg-info/top_level.txt
+[0.782s] reading manifest file '../../../build/multi_slam/multi_slam.egg-info/SOURCES.txt'
+[0.782s] adding license file 'LICENSE'
+[0.783s] writing manifest file '../../../build/multi_slam/multi_slam.egg-info/SOURCES.txt'
+[0.783s] running build
+[0.783s] running build_py
+[0.783s] running install
+[0.783s] running install_lib
+[0.785s] running install_data
+[0.785s] running install_egg_info
+[0.787s] removing '/home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages/multi_slam-0.0.0-py3.10.egg-info' (and everything under it)
+[0.787s] Copying ../../../build/multi_slam/multi_slam.egg-info to /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages/multi_slam-0.0.0-py3.10.egg-info
+[0.788s] running install_scripts
+[0.808s] Installing beacons_node script to /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam
+[0.808s] Installing controller_node script to /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam
+[0.808s] Installing lidar_node script to /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam
+[0.808s] Installing simulation_node script to /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam
+[0.808s] Installing visualization_node script to /home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/multi_slam
+[0.809s] writing list of installed files to '/home/tkleeneuron/cs133b-final-project/build/multi_slam/install.log'
+[0.840s] Invoked command in '/home/tkleeneuron/cs133b-final-project/multi_slam_ws/src/multi_slam' returned '0': PYTHONPATH=/home/tkleeneuron/cs133b-final-project/build/multi_slam/prefix_override:/usr/lib/python3/dist-packages/colcon_core/task/python/colcon_distutils_commands:/home/tkleeneuron/cs133b-final-project/install/multi_slam/lib/python3.10/site-packages:${PYTHONPATH} /usr/bin/python3 -W ignore:setup.py install is deprecated -W ignore:easy_install command is deprecated setup.py egg_info --egg-base ../../../build/multi_slam build --build-base /home/tkleeneuron/cs133b-final-project/build/multi_slam/build install --record /home/tkleeneuron/cs133b-final-project/build/multi_slam/install.log --single-version-externally-managed install_data
