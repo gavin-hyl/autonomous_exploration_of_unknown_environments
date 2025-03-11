@@ -6,40 +6,17 @@ class Mapping:
                  map_origin: tuple[float, float],
                  grid_size: float = 0.1,
                  ):
-        """
-        Initialize a mapping object.
-        
-        Args:
-            map_size: Tuple of (x_size, y_size) in meters
-            map_origin: Tuple of (x_origin, y_origin) in meters
-            grid_size: Size of each grid cell in meters
-        """
-        self.map_size = map_size
-        self.map_origin = map_origin
         self.grid_size = grid_size
+        self.map_origin = map_origin
+        # Note: ensure the grid shape is passed as a tuple
+        self.log_odds_grid = np.zeros((int(map_size[0] / grid_size), int(map_size[1] / grid_size)))
+        self.beacon_positions = []
+        self.beacon_covariances = []
         
-        # Calculate grid dimensions based on map size and grid size
-        self.grid_width = int(map_size[0] / grid_size)
-        self.grid_height = int(map_size[1] / grid_size)
-        
-        # Initialize the log-odds grid with zeros (p=0.5)
-        self.log_odds_grid = np.zeros((self.grid_width, self.grid_height))
-        
-        # Initialize beacon data structures
-        self.beacons = []  # List of dictionaries with position and covariance
-        self.beacon_positions = []  # List of positions
-        self.beacon_covariances = []  # List of covariances
-        
-        # Constants for the mapping algorithm
-        self.L_OCC = 0.9   # Log-odds increase for occupied cells
-        self.L_FREE = 0.7  # Log-odds decrease for free cells
-        self.BEACON_DIST_THRESH = 1.0  # Threshold for associating beacons (meters)
-        
-        # Initialize cache for the Bresenham algorithm
-        self._bresenham_cache = {}
-        self._cache_hits = 0
-        self._cache_misses = 0
-        self._cache_size = 100  # Max cache size
+        # Constants
+        self.L_FREE = -0.1
+        self.L_OCC = 0.3
+        self.BEACON_DIST_THRESH = 0.5
 
     def update(self,
                robot_pos: np.ndarray,
