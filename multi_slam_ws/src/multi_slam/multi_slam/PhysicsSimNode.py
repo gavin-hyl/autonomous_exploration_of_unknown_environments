@@ -18,6 +18,7 @@ class PhysicsSimNode(Node):
             Vector3, "control_signal", self.control_signal_cb, 10
         )
 
+        # Lidar parameters
         self.declare_parameter("lidar_r_max", 10.0)
         self.lidar_r_max = self.get_parameter("lidar_r_max").value
 
@@ -30,31 +31,17 @@ class PhysicsSimNode(Node):
         self.declare_parameter("lidar_std_dev", 0)
         self.lidar_std_dev = self.get_parameter("lidar_std_dev").value
 
+        # Beacon parameters
         self.declare_parameter("beacon_std_dev", 0)
         self.beacon_std_dev = self.get_parameter("beacon_std_dev").value
 
-        self.declare_parameter("pos_std_dev_dist", 0.1)
-        self.pos_std_dev_dist = self.get_parameter("pos_std_dev_dist").value
-
-        self.declare_parameter("pos_std_dev_theta", 0.05)
-        self.pos_std_dev_theta = self.get_parameter("pos_std_dev_theta").value
-
-        # Change parameter name to reflect that noise is applied to velocity
+        # Velocity parameters
         self.declare_parameter("vel_std_dev", 0.1)  # New parameter for velocity noise
         self.vel_std_dev = self.get_parameter("vel_std_dev").value
 
-        # Robot dimensions parameters
-        self.declare_parameter("robot_length", 0.4)
-        self.robot_length = self.get_parameter("robot_length").value
-        
-        self.declare_parameter("robot_width", 0.3)
-        self.robot_width = self.get_parameter("robot_width").value
-        
-        # Increase buffer for collision detection
         self.declare_parameter("collision_buffer", 0.1)  # Buffer distance from obstacles
         self.collision_buffer = self.get_parameter("collision_buffer").value
         
-        # Make collision increment smaller for more precise detection
         self.declare_parameter("collision_increment", 0.02)  # Smaller increment
         self.collision_increment = self.get_parameter("collision_increment").value
 
@@ -64,7 +51,6 @@ class PhysicsSimNode(Node):
         self.lidar_pub = self.create_publisher(PointCloud2, "lidar", 10)
         self.beacon_pub = self.create_publisher(PointCloud2, "beacon", 10)
 
-        self.pos_ideal_viz_pub = self.create_publisher(Marker, "visualization_marker_ideal", 10)
         self.pos_true_viz_pub = self.create_publisher(Marker, "visualization_marker_true", 10)
         self.beacon_viz_pub = self.create_publisher(PointCloud2, "beacon_viz", 10)
         self.lidar_viz_pub = self.create_publisher(PointCloud2, "lidar_viz", 10)
@@ -73,7 +59,6 @@ class PhysicsSimNode(Node):
         self.beacon_pub_timer = self.create_timer(0.1, self.beacon_publish_cb)
         self.sim_update_timer = self.create_timer(self.sim_dt, self.sim_update_cb)
 
-        self.pos_ideal = np.array([0, 0, 0], dtype=float)  # Ideal position without noise
         self.pos_true = np.array([0, 0, 0], dtype=float)   # True physical position with velocity noise
         self.vel_true = np.array([0, 0, 0], dtype=float)   # Velocity with noise (slippage)
         self.vel_ideal = np.array([0, 0, 0], dtype=float)  # Commanded velocity
@@ -90,13 +75,8 @@ class PhysicsSimNode(Node):
         noise[2] = 0.0  # Keep z component at 0
         self.vel_true = self.vel_ideal + noise
         
-        # Rather than setting a flag, update position immediately to reduce lag
-        # Calculate new positions based on velocities
-        intended_ideal_pos = self.pos_ideal + self.vel_ideal * self.sim_dt
         intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
         
-        # Update ideal position immediately
-        self.pos_ideal = intended_ideal_pos
         
         # Check collision for true position and update it
         self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
@@ -293,40 +273,6 @@ class PhysicsSimNode(Node):
         )
         self.beacon_viz_pub.publish(beacon_positions_world_msg)
 
-    def publish_ideal_pos(self):
-        """Publish the ideal position marker (theoretical position without noise)"""
-        marker = Marker()
-        marker.header.stamp = self.get_clock().now().to_msg()
-        marker.header.frame_id = "map"
-        marker.ns = "ideal_position"
-        marker.id = 0
-        marker.type = Marker.SPHERE
-        marker.action = Marker.ADD
-
-        # Set the position to the ideal position
-        marker.pose.position.x = self.pos_ideal[0]
-        marker.pose.position.y = self.pos_ideal[1]
-        marker.pose.position.z = self.pos_ideal[2]
-
-        # No rotation needed
-        marker.pose.orientation.x = 0.0
-        marker.pose.orientation.y = 0.0
-        marker.pose.orientation.z = 0.0
-        marker.pose.orientation.w = 1.0
-
-        # For a sphere with radius 0.3
-        marker.scale.x = 0.6
-        marker.scale.y = 0.6
-        marker.scale.z = 0.6
-
-        # Blue color for ideal position
-        marker.color.r = 0.0
-        marker.color.g = 0.0
-        marker.color.b = 1.0
-        marker.color.a = 1.0  # Fully opaque
-
-        self.pos_ideal_viz_pub.publish(marker)
-
     def publish_true_pos(self):
         """Publish the true position marker (actual physical position with noise)"""
         marker = Marker()
@@ -370,14 +316,10 @@ class PhysicsSimNode(Node):
             # This is a backup update for continuous movement
             
             # Update positions if we're still moving but haven't received new controls
-            intended_ideal_pos = self.pos_ideal + self.vel_ideal * self.sim_dt
             intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
-            
-            self.pos_ideal = intended_ideal_pos
             self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
         
         # Publish markers and sensor data
-        self.publish_ideal_pos()
         self.publish_true_pos()
 
 

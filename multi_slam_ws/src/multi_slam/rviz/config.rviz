@@ -7,7 +7,6 @@ Panels:
         - /Global Options1
         - /Status1
         - /Beacons1
-        - /Ideal Position1
         - /Map1
       Splitter Ratio: 0.5
     Tree Height: 1239
@@ -99,19 +98,6 @@ Visualization Manager:
         Value: /lidar_viz
       Use Fixed Frame: true
       Use rainbow: true
-      Value: true
-    - Class: rviz_default_plugins/Marker
-      Enabled: true
-      Name: Ideal Position
-      Namespaces:
-        ideal_position: true
-      Topic:
-        Depth: 5
-        Durability Policy: Volatile
-        Filter size: 10
-        History Policy: Keep Last
-        Reliability Policy: Reliable
-        Value: /visualization_marker_ideal
       Value: true
     - Class: rviz_default_plugins/Marker
       Enabled: true
@@ -215,7 +201,7 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 95.84709167480469
+      Scale: 111.5406494140625
       Target Frame: <Fixed Frame>
       Value: TopDownOrtho (rviz_default_plugins)
       X: 1.1557238101959229
