@@ -8,10 +8,16 @@ class Mapping:
                  ):
         self.grid_size = grid_size
         self.map_origin = map_origin
-        # Note: ensure the grid shape is passed as a tuple
-        self.log_odds_grid = np.zeros((int(map_size[0] / grid_size), int(map_size[1] / grid_size)))
+        # Calculate grid dimensions
+        self.grid_width = int(map_size[0] / grid_size)
+        self.grid_height = int(map_size[1] / grid_size)
+        self.log_odds_grid = np.zeros((self.grid_width, self.grid_height))
         self.beacon_positions = []
         self.beacon_covariances = []
+        
+        # Cache for Bresenham's algorithm
+        self._bresenham_cache = {}
+        self._cache_misses = 0
         
         # Constants
         self.L_FREE = -0.1

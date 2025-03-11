@@ -38,12 +38,10 @@ class SLAMNode(Node):
         self.debug_visualization = self.get_parameter('debug_visualization').value
         
         # Initialize Map and Localization
-        # Note: In Mapping class, the log_odds_grid shape should be (height, width)
-        # where height corresponds to y-dimension and width to x-dimension
         self.map = Mapping(
-            map_size=(map_size_x, map_size_y),  # In meters
-            map_origin=(map_origin_x, map_origin_y),  # In meters
-            grid_size=grid_size  # Size of each grid cell in meters
+            map_size=(map_size_x, map_size_y),
+            map_origin=(map_origin_x, map_origin_y),
+            grid_size=grid_size
         )
         
         # Initial position (x,y,0) - 2D position with z=0
@@ -102,18 +100,8 @@ class SLAMNode(Node):
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data"""
         try:
-            # Read points from the point cloud as (x, y, z) coordinates
             points = list(read_points(msg, field_names=("x", "y", "z")))
-            
-            # Convert to numpy arrays and store only the (x, y, z) coordinates relative to robot
-            # These are already in the robot's frame, so we don't need to transform them
             self.lidar_data = [np.array([p[0], p[1], p[2]]) for p in points]
-            
-            # Update the lidar range based on any min/max info available in the message
-            if hasattr(msg, 'range_min') and hasattr(msg, 'range_max'):
-                self.lidar_range = (msg.range_min, msg.range_max)
-                
-            self.get_logger().debug(f"Processed {len(self.lidar_data)} lidar points")
         except Exception as e:
             self.get_logger().error(f"Error processing lidar data: {e}")
 
@@ -131,50 +119,38 @@ class SLAMNode(Node):
 
     def slam_loop(self):
         """Main SLAM loop"""
-        try:
-            # Localization
-            updated_position, updated_cov = self.localization.update_position(
-                self.control_input,
-                self.beacon_data,
-                self.map
-            )
-            
-            # Always set the orientation (theta) to 0 for 2D robot
-            updated_position[2] = 0.0
-            self.position = updated_position
-            self.position_cov = np.diag([updated_cov[0], updated_cov[1], 0.0])  # Zero variance for theta
-            
-            # Only update mapping if we have real data
-            if len(self.lidar_data) > 0 or len(self.beacon_data) > 0:
-                self.get_logger().info(f"Updating map with {len(self.lidar_data)} lidar points and {len(self.beacon_data)} beacon points")
-                
-                # Mapping
-                self.map.update(
-                    robot_pos=self.position,
-                    robot_cov=self.position_cov,
-                    lidar_data=self.lidar_data,
-                    lidar_range=self.lidar_range,
-                    beacon_data=self.beacon_data
-                )
-            # Add debug occupancy data if requested and we don't have real data
-            elif self.debug_visualization:
-                self.add_debug_occupancy_data()
-            
-            # Visualization
-            self.publish_pose()
-            self.publish_map()
-            self.publish_beacons()
-            self.publish_path()
-            
-            # Control update based on selected method
-            if self.use_proposed_control:
-                self.update_control_proposed()
-            else:
-                # Using existing teleop code (no changes needed as it comes from /cmd_vel)
-                pass
-                
-        except Exception as e:
-            self.get_logger().error(f"Error in SLAM loop: {e}")
+        # Localization
+        updated_position, updated_cov = self.localization.update_position(
+            self.control_input,
+            self.beacon_data,
+            self.map
+        )
+        
+        updated_position[2] = 0.0
+        self.position = updated_position
+        self.position_cov = updated_cov
+        
+        # Mapping
+        # self.map.update(
+        #     robot_pos=self.position,
+        #     robot_cov=self.position_cov,
+        #     lidar_data=self.lidar_data,
+        #     lidar_range=self.lidar_range,
+        #     beacon_data=self.beacon_data
+        # )
+        
+        # Visualization
+        # self.publish_pose()
+        self.publish_map()
+        # self.publish_beacons()
+        # self.publish_path()
+        
+        # # Control update based on selected method
+        # if self.use_proposed_control:
+        #     self.update_control_proposed()
+        # else:
+        #     # Using existing teleop code (no changes needed as it comes from /cmd_vel)
+        #     pass
 
     def update_control_proposed(self):
         """Proposed control method: optimize towards finding beacons based on current map and position"""
@@ -248,18 +224,13 @@ class SLAMNode(Node):
 
         # Create occupancy grid message
         msg = OccupancyGrid()
-        now = self.get_clock().now()
-        msg.header.stamp = now.to_msg()
+        msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
         
-        # Set complete metadata (matching buildmap.py approach)
-        msg.info.map_load_time = now.to_msg()
+        # Set metadata
+        msg.info.width = self.map.grid_width
+        msg.info.height = self.map.grid_height
         msg.info.resolution = self.map.grid_size
-        
-        # In occupancy grid, height is rows (y) and width is columns (x)
-        height, width = self.map.log_odds_grid.shape
-        msg.info.width = width
-        msg.info.height = height
         
         # Set origin (position and orientation)
         msg.info.origin.position.x = self.map.map_origin[0]
@@ -267,17 +238,19 @@ class SLAMNode(Node):
         msg.info.origin.position.z = 0.0
         msg.info.origin.orientation.w = 1.0
 
-        # Convert log-odds to probability (0...1) following buildmap.py approach
-        exp = np.exp(self.map.log_odds_grid)
-        probability = exp / (1.0 + exp)
+        # Clip log-odds values to prevent extreme probabilities
+        clipped_grid = np.clip(self.map.log_odds_grid, -10.0, 10.0)        
         
-        # Convert probability to integers (0...100) and flatten in row-major order
-        # Note: flatten() uses row-major (C-style) order by default
-        occupancy = (100 * probability).astype(np.int8).flatten().tolist()
-        msg.data = occupancy
+        # Convert log-odds to probabilities (0-100)
+        probs = 1.0 / (1.0 + np.exp(-clipped_grid))
+        # Convert to standard OccupancyGrid format (0-100 for free-occupied, -1 for unknown)
+        occupancy = np.round(probs * 99).astype(np.int8)
+        
+        # Flatten in row-major order (required by RViz)
+        flat_occupancy = occupancy.flatten().tolist()
+        msg.data = flat_occupancy
         
         self.map_pub.publish(msg)
-        self.get_logger().info(f"Published map: {width}x{height} cells")
 
     def publish_beacons(self):
         """Publish estimated beacon positions"""
@@ -318,83 +291,29 @@ class SLAMNode(Node):
         """Publish robot path"""
         self.path_pub.publish(self.path)
 
-    def add_debug_occupancy_data(self):
-        """Add some debug occupancy data to visualize the map when no real data is available"""
-        # Constants matching the buildmap.py example
-        LFREE = -0.03
-        LOCCUPIED = 0.3
+
+    def create_line(self, x0, y0, x1, y1):
+        """Create a line of points using Bresenham's algorithm"""
+        points = []
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
         
-        # Add a square pattern of occupied cells around the robot
-        robot_x, robot_y = self.position[0], self.position[1]
-        
-        try:
-            # Convert robot position to grid coordinates using the same approach as buildmap.py
-            u = int((robot_x - self.map.map_origin[0]) / self.map.grid_size)
-            v = int((robot_y - self.map.map_origin[1]) / self.map.grid_size)
-            
-            height, width = self.map.log_odds_grid.shape
-            
-            # Check if robot is within grid bounds
-            if (0 <= u < width and 0 <= v < height):
-                # Draw a "plus" pattern at the robot's position
-                for i in range(-10, 11):
-                    # Horizontal line
-                    if 0 <= u + i < width:
-                        self.map.log_odds_grid[v, u + i] += LOCCUPIED
-                    # Vertical line
-                    if 0 <= v + i < height:
-                        self.map.log_odds_grid[v + i, u] += LOCCUPIED
+        while True:
+            points.append((x0, y0))
+            if x0 == x1 and y0 == y1:
+                break
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x0 += sx
+            if e2 < dx:
+                err += dx
+                y0 += sy
                 
-                # Simulate some "rays" like a lidar would create
-                for angle in range(0, 360, 30):  # Every 30 degrees
-                    # Compute ray endpoint (scaled to appropriate length)
-                    ray_length = 20  # cells
-                    dx = ray_length * np.cos(np.radians(angle))
-                    dy = ray_length * np.sin(np.radians(angle))
-                    
-                    end_u = int(u + dx)
-                    end_v = int(v + dy)
-                    
-                    # Use our bresenham implementation to get points along the ray
-                    ray_points = self.bresenham((u, v), (end_u, end_v))
-                    
-                    # Mark the ray as free space (excluding endpoint)
-                    for i, (point_u, point_v) in enumerate(ray_points):
-                        if 0 <= point_u < width and 0 <= point_v < height:
-                            # Last point is occupied, all others are free
-                            if i == len(ray_points) - 1:
-                                self.map.log_odds_grid[point_v, point_u] += LOCCUPIED
-                            else:
-                                self.map.log_odds_grid[point_v, point_u] += LFREE
-                
-                self.get_logger().info(f"Added debug occupancy data at ({u}, {v})")
-                
-        except Exception as e:
-            self.get_logger().error(f"Error adding debug occupancy data: {e}")
-            
-    def bresenham(self, start, end):
-        """Return a list of all intermediate (integer) pixel coordinates from start to end
-           Implementation based on buildmap.py example
-        """
-        # Extract the coordinates
-        (xs, ys) = start
-        (xe, ye) = end
-        
-        # Move along ray (excluding endpoint).
-        if (np.abs(xe-xs) >= np.abs(ye-ys)):
-            # X-dominant
-            points = []
-            for u in range(int(xs), int(xe), 1 if xe > xs else -1):
-                v = int(ys + (ye-ys)/(xe-xs) * (u+0.5-xs))
-                points.append((u, v))
-            return points
-        else:
-            # Y-dominant
-            points = []
-            for v in range(int(ys), int(ye), 1 if ye > ys else -1):
-                u = int(xs + (xe-xs)/(ye-ys) * (v+0.5-ys))
-                points.append((u, v))
-            return points
+        return points
 
 def main(args=None):
     rclpy.init(args=args)
