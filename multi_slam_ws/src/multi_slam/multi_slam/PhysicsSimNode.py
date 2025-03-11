@@ -18,10 +18,10 @@ class PhysicsSimNode(Node):
             Vector3, "control_signal", self.control_signal_cb, 10
         )
 
-        self.declare_parameter("lidar_r_max", 5)
+        self.declare_parameter("lidar_r_max", 100.0)
         self.lidar_r_max = self.get_parameter("lidar_r_max").value
 
-        self.declare_parameter("lidar_r_min", 0.2)
+        self.declare_parameter("lidar_r_min", 0.01)
         self.lidar_r_min = self.get_parameter("lidar_r_min").value
 
         self.declare_parameter("lidar_delta_theta", 3)
