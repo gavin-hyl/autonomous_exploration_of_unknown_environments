@@ -1,10 +1,11 @@
 class Localization:
-    def __init__(self, initial_location, std_dev, num_particles, dt):
+    def __init__(self, initial_location, std_dev_noise, num_particles, dt):
         self.current_location = initial_location
-        self.std_dev = std_dev
+        self.covariance_matrix = np.eye(3)
         self.num_particles = num_particles
         self.dt = dt
-                
+
+        self.std_dev_noise = std_dev_noise
         self.occupancy_threshold = 0.5
 
 
@@ -19,7 +20,7 @@ class Localization:
         particles = []
         for i in range(self.num_particles):
             # z is fixed to 0
-            particle_location = predicted_location + [np.random.normal(0, self.std_dev), np.random.normal(0, self.std_dev), 0.0]
+            particle_location = predicted_location + [np.random.normal(0, self.std_dev_noise), np.random.normal(0, self.std_dev_noise), 0.0]
             particles.append(particle_location)
         
         # calculate score for each particle
@@ -36,9 +37,9 @@ class Localization:
 
         # update current location
         self.current_location = np.mean(particles, axis=0)
-        self.std_dev = np.std(particles, axis=0) 
+        self.covariance_matrix = np.cov(particles, rowvar=False)
 
-        return self.current_location, self.std_dev
+        return self.current_location, self.covariance_matrix
 
     def calculate_score(self, particle, beacon_data, estimated_map):
         score = 0 
