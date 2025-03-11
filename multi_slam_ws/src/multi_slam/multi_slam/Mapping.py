@@ -108,13 +108,13 @@ class Mapping:
 
     def get_closest_beacon(self, point_world):
         if len(self.beacon_positions) == 0:
-            return None
+            return None, None, None
         dists = np.linalg.norm(np.array(self.beacon_positions) - point_world, axis=1)
         mindex = np.argmin(dists)
         min_dist = dists[mindex]
         if min_dist > self.BEACON_DIST_THRESH:
             return None
-        return self.beacon_positions[mindex], self.beacon_covariances[mindex]
+        return self.beacon_positions[mindex], self.beacon_covariances[mindex], mindex
 
     def _bresenham_line(self, start, end):
         """

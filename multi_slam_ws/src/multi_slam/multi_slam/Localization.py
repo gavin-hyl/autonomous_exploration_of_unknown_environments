@@ -52,11 +52,11 @@ class Localization:
             # Batch check occupancy
             occupancies = estimated_map.world_to_prob_batch(points)
             if np.any(occupancies > self.occupancy_threshold):
-                return -float('inf')
+                return -1e9
             
             closest_beacon, _, _ = estimated_map.get_closest_beacon(global_beacon)
             if closest_beacon is None:
-                return -float('inf')
+                return -1e9
 
             score += max(0, min(100, 1 / np.sqrt(sum((closest_beacon - global_beacon) ** 2))))
         
