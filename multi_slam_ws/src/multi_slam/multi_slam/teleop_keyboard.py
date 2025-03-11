@@ -35,12 +35,19 @@ class KeyboardTeleop(Node):
         self.publisher = self.create_publisher(Vector3, 'control_signal', 10)
         
         self.key_mapping = {
-            'w': np.array([1.0, 0.0, 0.0]),   # Forward
-            's': np.array([-1.0, 0.0, 0.0]),  # Backward
-            'a': np.array([0.0, 1.0, 0.0]),   # Left
-            'd': np.array([0.0, -1.0, 0.0]),  # Right
+            'w': np.array([0.0, 1.0, 0.0]),   # Forward (positive Y)
+            's': np.array([0.0, -1.0, 0.0]),  # Backward (negative Y)
+            'a': np.array([-1.0, 0.0, 0.0]),  # Left (negative X)
+            'd': np.array([1.0, 0.0, 0.0]),   # Right (positive X)
             'x': np.array([0.0, 0.0, 0.0]),   # Stop
         }
+
+        # original key mapping 
+        # 'w': np.array([1.0, 0.0, 0.0]),   # Forward
+        # 's': np.array([-1.0, 0.0, 0.0]),  # Backward
+        # 'a': np.array([0.0, 1.0, 0.0]),   # Left
+        # 'd': np.array([0.0, -1.0, 0.0]),  # Right
+
         
         # Parameter settings
         self.declare_parameter('max_speed', 1.0)
@@ -145,7 +152,7 @@ class KeyboardTeleop(Node):
             # Move cursor and display status
             os.system('clear')
             print(msg)
-            print(f"Current command: {self.last_key}")
+            print(f"Current Command: {self.last_key}")
             print(f"Velocity: X={self.current_velocity[0]:.2f}, Y={self.current_velocity[1]:.2f}")
             print(self.status_msg)
             time.sleep(0.2)
