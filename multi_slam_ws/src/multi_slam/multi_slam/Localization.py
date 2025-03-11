@@ -5,38 +5,37 @@ class Localization:
         self.current_location = initial_location
         self.covariance_matrix = np.eye(3)
         self.num_particles = num_particles
-        self.dt = dt
 
         self.std_dev_noise = std_dev_noise
         self.occupancy_threshold = 0.5
 
 
-    def update_position(self, control_signal, beacon_data, estimated_map):
-        # control signal: single array (delta_x, delta_y, delta_z)
-        # beacon data: list of arrays (delta_x, delta_y, delta_z)
-        # estimated map: object to get occupancy grid and beacon data
-        predicted_location = self.current_location + control_signal * self.dt
+    def update_position(self, dt_sec, control_signal, beacon_data, estimated_map):
+        predicted_location = self.current_location + control_signal * dt_sec
+        self.current_location = predicted_location
 
-        # Vectorized particle generation
-        noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
-        particles = predicted_location + np.pad(noise, ((0, 0), (0, 1)))  # pad with zeros for z
+        return predicted_location, self.covariance_matrix
+
+        # # Vectorized particle generation
+        # noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
+        # particles = predicted_location + np.pad(noise, ((0, 0), (0, 1)))  # pad with zeros for z
         
-        # Calculate scores (could be parallelized if needed)
-        scores = np.array([self.calculate_score(p, beacon_data, estimated_map) for p in particles])
+        # # Calculate scores (could be parallelized if needed)
+        # scores = np.array([self.calculate_score(p, beacon_data, estimated_map) for p in particles])
         
-        # Vectorized softmax
-        scores = np.exp(scores - np.max(scores))  # Subtract max for numerical stability
-        scores /= scores.sum()
+        # # Vectorized softmax
+        # scores = np.exp(scores - np.max(scores))  # Subtract max for numerical stability
+        # scores /= scores.sum()
         
-        # Efficient resampling
-        particles_idx = np.random.choice(self.num_particles, size=self.num_particles, p=scores)
-        particles = np.array(particles)[particles_idx]
+        # # Efficient resampling
+        # particles_idx = np.random.choice(self.num_particles, size=self.num_particles, p=scores)
+        # particles = np.array(particles)[particles_idx]
         
-        # Update current location and covariance
-        self.current_location = np.mean(particles, axis=0)
-        self.covariance_matrix = np.cov(particles, rowvar=False)
+        # # Update current location and covariance
+        # self.current_location = np.mean(particles, axis=0)
+        # self.covariance_matrix = np.cov(particles, rowvar=False)
         
-        return self.current_location, self.covariance_matrix
+        # return self.current_location, self.covariance_matrix
 
     def calculate_score(self, particle, beacon_data, estimated_map):
         score = 0 

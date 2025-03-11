@@ -9,6 +9,7 @@ import numpy as np
 from visualization_msgs.msg import Marker
 import math
 from shapely.geometry import LineString, Point, Polygon
+from std_msgs.msg import Float32
 
 
 class PhysicsSimNode(Node):
@@ -65,6 +66,9 @@ class PhysicsSimNode(Node):
         self.pos_est = np.array([0, 0, 0], dtype=float)
         self.accel = np.array([0, 0, 0], dtype=float)
         self.control_signal_received = False  # Flag to track if control signal was received
+
+        self.sim_time = 0.0
+        self.sim_time_pub = self.create_publisher(Float32, "/sim_time", 10)
 
     def control_signal_cb(self, msg: Vector3):
         # Store the commanded velocity as ideal velocity
@@ -318,10 +322,13 @@ class PhysicsSimNode(Node):
             # Update positions if we're still moving but haven't received new controls
             intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
             self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
-        
+            self.sim_time += self.sim_dt
         # Publish markers and sensor data
         self.publish_true_pos()
 
+        sim_time_msg = Float32()
+        sim_time_msg.data = self.sim_time
+        self.sim_time_pub.publish(sim_time_msg)
 
 def main(args=None):
     rclpy.init(args=args)

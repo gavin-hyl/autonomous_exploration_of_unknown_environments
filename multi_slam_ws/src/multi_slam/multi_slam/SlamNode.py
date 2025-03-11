@@ -10,7 +10,8 @@ from multi_slam.Mapping import Mapping
 import numpy as np
 from sensor_msgs_py.point_cloud2 import read_points
 import math
-
+import time
+from std_msgs.msg import Float32
 class SLAMNode(Node):
     def __init__(self):
         super().__init__("slam_node")
@@ -50,7 +51,7 @@ class SLAMNode(Node):
         self.position_cov = np.eye(3) * 0.1  # Initial covariance
         
         # Update rate
-        self.dt = 0.1
+        self.dt = 0.01
         
         # Initialize Localization
         self.localization = Localization(
@@ -76,17 +77,19 @@ class SLAMNode(Node):
             PointCloud2, "/beacon", self.beacon_callback, 10
         )
         self.create_subscription(
-            Twist, "/cmd_vel", self.control_callback, 10
+            Vector3, "/control_signal", self.control_callback, 10
         )
         
+        self.create_subscription(
+            Float32, "/sim_time", self.sim_time_callback, 10
+        )
         # Publishers
         self.pose_pub = self.create_publisher(Marker, "/pos_hat_viz", 10)
         self.map_pub = self.create_publisher(OccupancyGrid, "/occupancy_grid", 10)
         self.beacon_pub = self.create_publisher(MarkerArray, "/estimated_beacons", 10)
-        self.path_pub = self.create_publisher(Path, "/robot_path", 10)
         
         # Publisher for control commands (when using proposed control method)
-        self.cmd_vel_pub = self.create_publisher(Twist, "/cmd_vel", 10)
+        self.cmd_vel_pub = self.create_publisher(Vector3, "/control_signal", 10)
         
         # Timer for SLAM main loop
         self.create_timer(self.dt, self.slam_loop)
@@ -97,7 +100,9 @@ class SLAMNode(Node):
         # Path for visualization
         self.path = Path()
         self.path.header.frame_id = "map"
-        
+        self.sim_time = 0.0
+        self.last_slam_time = self.sim_time
+
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data"""
@@ -115,19 +120,21 @@ class SLAMNode(Node):
         except Exception as e:
             self.get_logger().error(f"Error processing beacon data: {e}")
 
-    def control_callback(self, msg: Twist):
+    def control_callback(self, msg: Vector3):
         """Process control input"""
-        self.control_input = np.array([msg.linear.x, msg.linear.y, msg.linear.z])
+        self.control_input = np.array([msg.x, msg.y, msg.z])
 
     def slam_loop(self):
         """Main SLAM loop"""
         # Localization
-        self.get_logger().info("Updating position")
         updated_position, updated_cov = self.localization.update_position(
             self.control_input,
+            self.sim_time - self.last_slam_time,
             self.beacon_data,
             self.map
         )
+        self.last_slam_time = self.sim_time
+
         
         updated_position[2] = 0.0
         self.position = updated_position
@@ -141,47 +148,9 @@ class SLAMNode(Node):
             beacon_data=self.beacon_data
         )
 
+    def sim_time_callback(self, msg: Float32):
+        self.sim_time = msg.data
 
-    def update_control_proposed(self):
-        """Proposed control method: optimize towards finding beacons based on current map and position"""
-        # If no beacon data is available, explore randomly
-        if len(self.map.beacon_positions) == 0:
-            # Random exploration if no beacons detected yet
-            angular_z = 0.2  # slow rotation
-            linear_x = 0.1   # slow forward movement
-            cmd = Twist()
-            cmd.linear.x = linear_x
-            cmd.angular.z = angular_z
-            self.cmd_vel_pub.publish(cmd)
-            return
-            
-        # Find the beacon with highest uncertainty (largest covariance determinant)
-        beacon_uncertainties = [np.linalg.det(cov) for cov in self.map.beacon_covariances]
-        target_idx = np.argmax(beacon_uncertainties)
-        target_beacon = self.map.beacon_positions[target_idx]
-        
-        # Calculate vector from robot to target beacon (2D only, ignore orientation)
-        delta_x = target_beacon[0] - self.position[0]
-        delta_y = target_beacon[1] - self.position[1]
-        distance = math.sqrt(delta_x**2 + delta_y**2)
-        
-        # For 2D robot without orientation, just move directly towards target
-        # (we ignore orientation/theta since robot frame is aligned with world frame)
-        
-        # Simple proportional control for movement
-        k_linear = 0.3
-        linear_x = min(k_linear * distance, 0.2)
-        
-        # Direction control (choose positive or negative x based on target direction)
-        if delta_x < 0:
-            linear_x = -linear_x
-            
-        # Create and publish control command
-        cmd = Twist()
-        cmd.linear.x = linear_x
-        cmd.linear.y = 0.0  # No sideways movement
-        cmd.angular.z = 0.0  # No rotation for 2D robot
-        self.cmd_vel_pub.publish(cmd)
 
     def publish_pos(self):
         """Publish the estimated pose"""
@@ -270,33 +239,6 @@ class SLAMNode(Node):
             
         self.beacon_pub.publish(marker_array)
 
-    def publish_path(self):
-        """Publish robot path"""
-        self.path_pub.publish(self.path)
-
-
-    def create_line(self, x0, y0, x1, y1):
-        """Create a line of points using Bresenham's algorithm"""
-        points = []
-        dx = abs(x1 - x0)
-        dy = abs(y1 - y0)
-        sx = 1 if x0 < x1 else -1
-        sy = 1 if y0 < y1 else -1
-        err = dx - dy
-        
-        while True:
-            points.append((x0, y0))
-            if x0 == x1 and y0 == y1:
-                break
-            e2 = 2 * err
-            if e2 > -dy:
-                err -= dy
-                x0 += sx
-            if e2 < dx:
-                err += dx
-                y0 += sy
-                
-        return points
 
 def main(args=None):
     rclpy.init(args=args)

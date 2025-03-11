@@ -32,7 +32,7 @@ class KeyboardTeleop(Node):
     def __init__(self):
         super().__init__('keyboard_teleop')
         
-        self.publisher = self.create_publisher(Vector3, 'control_signal', 10)
+        self.publisher = self.create_publisher(Vector3, '/control_signal', 10)
         
         self.key_mapping = {
             'w': np.array([0.0, 1.0, 0.0]),   # Forward (positive Y)
@@ -52,12 +52,6 @@ class KeyboardTeleop(Node):
         # Parameter settings
         self.declare_parameter('max_speed', 1.0)
         self.max_speed = self.get_parameter('max_speed').value
-        
-        self.declare_parameter('acceleration', 2.0)
-        self.acceleration = self.get_parameter('acceleration').value
-        
-        self.declare_parameter('deceleration', 4.0)
-        self.deceleration = self.get_parameter('deceleration').value
         
         self.declare_parameter('publish_rate', 20.0)  # Higher rate for better responsiveness
         self.publish_rate = self.get_parameter('publish_rate').value
@@ -96,28 +90,10 @@ class KeyboardTeleop(Node):
         termios.tcsetattr(sys.stdin, termios.TCSADRAIN, settings)
         return key
 
-    def update_velocity(self, dt):
-        """Update velocity with smooth acceleration/deceleration"""
-        if np.array_equal(self.target_velocity, self.current_velocity):
-            return
-            
-        # Process each axis
-        for i in range(3):
-            if self.current_velocity[i] < self.target_velocity[i]:
-                # Acceleration
-                self.current_velocity[i] = min(
-                    self.target_velocity[i],
-                    self.current_velocity[i] + self.acceleration * dt
-                )
-            elif self.current_velocity[i] > self.target_velocity[i]:
-                # Deceleration
-                self.current_velocity[i] = max(
-                    self.target_velocity[i],
-                    self.current_velocity[i] - self.deceleration * dt
-                )
-        
-        # Set very small values to zero
-        self.current_velocity[np.abs(self.current_velocity) < 0.05] = 0.0
+    def update_velocity(self):
+        """Update velocity with first-order control"""
+        # Direct first-order control - set current velocity to target velocity
+        self.current_velocity = self.target_velocity.copy()
 
     def publish_control(self):
         """Publish control commands"""
@@ -130,15 +106,12 @@ class KeyboardTeleop(Node):
     def publish_loop(self):
         """Publish control commands at a fixed rate"""
         r = 1.0 / self.publish_rate
-        last_time = time.time()
         
         while self.publishing:
             now = time.time()
-            dt = now - last_time
-            last_time = now
             
-            # Process smooth acceleration/deceleration
-            self.update_velocity(dt)
+            # Set current velocity to target velocity (first-order control)
+            self.update_velocity()
             
             # Publish command
             self.publish_control()
