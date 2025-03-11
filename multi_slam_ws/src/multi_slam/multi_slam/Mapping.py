@@ -4,7 +4,7 @@ class Mapping:
     def __init__(self,
                  map_size: tuple[float, float],
                  map_origin: tuple[float, float],
-                 grid_size: float = 0.1,
+                 grid_size: float = 0.05,
                  ):
         self.grid_size = grid_size
         self.map_origin = map_origin
