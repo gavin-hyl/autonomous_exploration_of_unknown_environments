@@ -188,6 +188,7 @@ class PhysicsSimNode(Node):
         safe_pos = np.array(current_pos)  # Last known safe position
         test_pos = np.array(current_pos)
         increment_distance = 0.0
+        test_collides = False
         
         # Use smaller increments to ensure we don't miss collisions
         while increment_distance < distance:
