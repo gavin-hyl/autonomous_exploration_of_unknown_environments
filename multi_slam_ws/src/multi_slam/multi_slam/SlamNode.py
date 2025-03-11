@@ -125,7 +125,6 @@ class SLAMNode(Node):
             self.beacon_data,
             self.map
         )
-        self.get_logger().info("SLAM loop")
         
         updated_position[2] = 0.0
         self.position = updated_position
@@ -229,8 +228,8 @@ class SLAMNode(Node):
         msg.header.frame_id = "map"
         
         # Set metadata
-        msg.info.width = self.map.log_odds_grid.shape[1]
-        msg.info.height = self.map.log_odds_grid.shape[0]
+        msg.info.width = self.map.grid_width
+        msg.info.height = self.map.grid_height
         msg.info.resolution = self.map.grid_size
         
         # Set origin (position and orientation)
@@ -239,10 +238,18 @@ class SLAMNode(Node):
         msg.info.origin.position.z = 0.0
         msg.info.origin.orientation.w = 1.0
 
+        # Clip log-odds values to prevent extreme probabilities
         clipped_grid = np.clip(self.map.log_odds_grid, -10.0, 10.0)        
+        
+        # Convert log-odds to probabilities (0-100)
         probs = 1.0 / (1.0 + np.exp(-clipped_grid))
-        occupancy = (probs * 100).astype(np.int8)
-        msg.data = occupancy.flatten().tolist()
+        # Convert to standard OccupancyGrid format (0-100 for free-occupied, -1 for unknown)
+        occupancy = np.round(probs * 99).astype(np.int8)
+        
+        # Flatten in row-major order (required by RViz)
+        flat_occupancy = occupancy.flatten().tolist()
+        msg.data = flat_occupancy
+        
         self.map_pub.publish(msg)
 
     def publish_beacons(self):
@@ -284,63 +291,6 @@ class SLAMNode(Node):
         """Publish robot path"""
         self.path_pub.publish(self.path)
 
-    def add_debug_occupancy_data(self):
-        """Add some debug occupancy data to visualize the map when no real data is available"""
-        # Add a square pattern of occupied cells around the robot
-        robot_x, robot_y = self.position[0], self.position[1]
-        
-        try:
-            # Convert robot position to grid coordinates
-            grid_x, grid_y = int((robot_x - self.map.map_origin[0]) / self.map.grid_size), int((robot_y - self.map.map_origin[1]) / self.map.grid_size)
-            
-            # Check if robot is within grid bounds
-            if (0 <= grid_x < self.map.log_odds_grid.shape[0] and 
-                0 <= grid_y < self.map.log_odds_grid.shape[1]):
-                
-                # Create a square pattern
-                size = 10
-                for i in range(-size, size+1):
-                    for j in range(-size, size+1):
-                        # Only set the border of the square
-                        if (abs(i) == size or abs(j) == size):
-                            # Check if within grid bounds
-                            if (0 <= grid_x + i < self.map.log_odds_grid.shape[0] and 
-                                0 <= grid_y + j < self.map.log_odds_grid.shape[1]):
-                                # Increase log-odds for occupied cells
-                                self.map.log_odds_grid[grid_x + i, grid_y + j] += 1.0
-                                
-                # Create some radial lines for visualization
-                for angle in range(0, 360, 45):
-                    radius = 15
-                    dx = int(radius * math.cos(math.radians(angle)))
-                    dy = int(radius * math.sin(math.radians(angle)))
-                    
-                    # Draw line from robot to endpoint
-                    line_points = self.create_line(grid_x, grid_y, grid_x + dx, grid_y + dy)
-                    for point in line_points:
-                        px, py = point
-                        if (0 <= px < self.map.log_odds_grid.shape[0] and 
-                            0 <= py < self.map.log_odds_grid.shape[1]):
-                            self.map.log_odds_grid[px, py] += 1.0
-                
-                # Also create a small pattern at the origin (0,0) for reference
-                origin_x, origin_y = int(-self.map.map_origin[0] / self.map.grid_size), int(-self.map.map_origin[1] / self.map.grid_size)
-                if (0 <= origin_x < self.map.log_odds_grid.shape[0] and 
-                    0 <= origin_y < self.map.log_odds_grid.shape[1]):
-                    
-                    # Create a cross at the origin
-                    for i in range(-5, 6):
-                        if (0 <= origin_x + i < self.map.log_odds_grid.shape[0]):
-                            self.map.log_odds_grid[origin_x + i, origin_y] += 1.0
-                        if (0 <= origin_y + i < self.map.log_odds_grid.shape[1]):
-                            self.map.log_odds_grid[origin_x, origin_y + i] += 1.0
-                
-                # Log debug info
-                self.get_logger().debug(f"Added debug occupancy data at grid coordinates ({grid_x}, {grid_y})")
-                self.get_logger().debug(f"Origin at grid coordinates ({origin_x}, {origin_y})")
-        
-        except Exception as e:
-            self.get_logger().error(f"Error adding debug occupancy data: {e}")
 
     def create_line(self, x0, y0, x1, y1):
         """Create a line of points using Bresenham's algorithm"""

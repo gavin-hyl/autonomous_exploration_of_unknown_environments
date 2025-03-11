@@ -9,7 +9,6 @@ Panels:
         - /Beacons1
         - /Ideal Position1
         - /Map1
-        - /Map1/Status1
       Splitter Ratio: 0.5
     Tree Height: 1239
   - Class: rviz_common/Selection
@@ -193,26 +192,21 @@ Visualization Manager:
   Value: true
   Views:
     Current:
-      Class: rviz_default_plugins/Orbit
-      Distance: 37.98228073120117
+      Angle: -0.02500000223517418
+      Class: rviz_default_plugins/TopDownOrtho
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
-      Focal Point:
-        X: 0
-        Y: 0
-        Z: 0
-      Focal Shape Fixed Size: true
-      Focal Shape Size: 0.05000000074505806
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Pitch: 1.4797964096069336
+      Scale: 43.292518615722656
       Target Frame: <Fixed Frame>
-      Value: Orbit (rviz)
-      Yaw: 3.0203990936279297
+      Value: TopDownOrtho (rviz_default_plugins)
+      X: 1.1557238101959229
+      Y: -0.9069237112998962
     Saved: ~
 Window Geometry:
   Displays:
