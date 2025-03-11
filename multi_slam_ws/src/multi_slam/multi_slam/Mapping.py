@@ -142,17 +142,10 @@ class Mapping:
         world_y = self.map_origin[1] + (y + 0.5) * self.grid_size
         return world_x, world_y
 
-    def grid_to_prob(self, x, y):
-        """
-        Convert the log-odds value in the grid at the given indices to a probability.
-
-        Args:
-            x (int): grid index in x.
-            y (int): grid index in y.
-
-        Returns:
-            float: Probability of occupancy.
-        """
-        lor = self.log_odds_grid[x, y]
+    def world_to_prob(self, world_x, world_y):
+        grid_x, grid_y = self._coord_to_grid(world_x, world_y)
+        lor = self.log_odds_grid[grid_x, grid_y]
         prob = np.exp(lor) / (1 + np.exp(lor))
         return prob
+        
+    
