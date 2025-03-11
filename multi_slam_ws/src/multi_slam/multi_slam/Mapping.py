@@ -74,13 +74,13 @@ class Mapping:
                     # Apply log-odds update - mark as free space (negative update)
                     # Use distance-based decay for free space - less confident further away
                     distance_factor = min(1.0, 0.5 + 0.5 * i / max(1, len(ray_cells)))
-                    self.log_odds_grid[grid_x, grid_y] -= 0.4 * distance_factor
+                    self.log_odds_grid[grid_y, grid_x] -= 0.4 * distance_factor
                 
                 # Mark the endpoint as occupied if it's within the grid
                 if ray_cells and len(ray_cells) > 0:
                     grid_x, grid_y = ray_cells[-1]
                     if (0 < grid_x < self.grid_width-1 and 0 < grid_y < self.grid_height-1):
-                        self.log_odds_grid[grid_x, grid_y] += 0.9
+                        self.log_odds_grid[grid_y, grid_x] += 0.9
         
         # Process beacon data
         if beacon_data:

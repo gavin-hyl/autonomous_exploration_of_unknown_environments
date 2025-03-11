@@ -80,7 +80,7 @@ class SLAMNode(Node):
         )
         
         # Publishers
-        self.pose_pub = self.create_publisher(PoseStamped, "/estimated_pose", 10)
+        self.pose_pub = self.create_publisher(Marker, "/pos_hat_viz", 10)
         self.map_pub = self.create_publisher(OccupancyGrid, "/occupancy_grid", 10)
         self.beacon_pub = self.create_publisher(MarkerArray, "/estimated_beacons", 10)
         self.path_pub = self.create_publisher(Path, "/robot_path", 10)
@@ -92,6 +92,7 @@ class SLAMNode(Node):
         self.create_timer(self.dt, self.slam_loop)
 
         self.map_pub_timer = self.create_timer(1.0, self.publish_map)
+        self.pos_pub_timer = self.create_timer(1.0, self.publish_pos)
         
         # Path for visualization
         self.path = Path()
@@ -128,18 +129,18 @@ class SLAMNode(Node):
             self.map
         )
         
-        # updated_position[2] = 0.0
-        # self.position = updated_position
-        # self.position_cov = updated_cov
+        updated_position[2] = 0.0
+        self.position = updated_position
+        self.position_cov = updated_cov
         
-        # Mapping
-        # self.map.update(
-        #     robot_pos=self.position,
-        #     robot_cov=self.position_cov,
-        #     lidar_data=self.lidar_data,
-        #     lidar_range=self.lidar_range,
-        #     beacon_data=self.beacon_data
-        # )
+        Mapping
+        self.map.update(
+            robot_pos=self.position,
+            robot_cov=self.position_cov,
+            lidar_data=self.lidar_data,
+            lidar_range=self.lidar_range,
+            beacon_data=self.beacon_data
+        )
         
         # Visualization
         # self.publish_pose()
@@ -195,30 +196,33 @@ class SLAMNode(Node):
         cmd.angular.z = 0.0  # No rotation for 2D robot
         self.cmd_vel_pub.publish(cmd)
 
-    def publish_pose(self):
+    def publish_pos(self):
         """Publish the estimated pose"""
-        msg = PoseStamped()
-        msg.header.stamp = self.get_clock().now().to_msg()
-        msg.header.frame_id = "map"
+        marker = Marker()
+        marker.header.frame_id = "map"
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = "pos_hat_viz"
+        marker.id = 0
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+
+        # Position
+        marker.pose.position.x = self.position[0]
+        marker.pose.position.y = self.position[1]
+        marker.pose.position.z = 0.0
         
-        # Position (2D)
-        msg.pose.position.x = self.position[0]
-        msg.pose.position.y = self.position[1]
-        msg.pose.position.z = 0.0
+        # Scale
+        marker.scale.x = 0.3
+        marker.scale.y = 0.3
+        marker.scale.z = 0.3
         
-        # Orientation - identity quaternion for 2D robot aligned with world frame
-        msg.pose.orientation.x = 0.0
-        msg.pose.orientation.y = 0.0
-        msg.pose.orientation.z = 0.0
-        msg.pose.orientation.w = 1.0  # Identity quaternion
+        # Color
+        marker.color.r = 1.0
+        marker.color.g = 0.0
+        marker.color.b = 0.0
+        marker.color.a = 1.0
         
-        self.pose_pub.publish(msg)
-        
-        # Add to path for visualization
-        self.path.header.stamp = self.get_clock().now().to_msg()
-        self.path.poses.append(msg)
-        if len(self.path.poses) > 1000:  # Limit path length
-            self.path.poses.pop(0)
+        self.pose_pub.publish(marker)
 
     def publish_map(self):
         """Publish occupancy grid"""
