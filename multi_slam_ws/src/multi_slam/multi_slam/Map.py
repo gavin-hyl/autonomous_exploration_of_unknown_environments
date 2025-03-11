@@ -187,14 +187,14 @@ class Map:
 # Example usage:
 
 # Create a map with a rectangular boundary from (0,0) to (10,10)
-MAP = Map(-100, -100, 100, 100)
+MAP = Map(-10, -10, 10, 10)
 
-for x in [-87.5, 0, 87.5]:
-    for y in [-87.5, 0, 87.5]:
+for x in [-8.75, 0, 8.75]:
+    for y in [-8.75, 0, 8.75]:
         MAP._add_beacon(Point(x, y))
 
-for center_x in [-50, 50]:
-    for center_y in [-50, 50]:
-        radius = 25
+for center_x in [-8.75, 0, 8.75]:
+    for center_y in [-8.75, 0, 8.75]:
+        radius = 2.5
         MAP._add_obstacle(Circle(Point(center_x, center_y), radius))
 
