@@ -18,10 +18,10 @@ class PhysicsSimNode(Node):
             Vector3, "control_signal", self.control_signal_cb, 10
         )
 
-        self.declare_parameter("lidar_r_max", 5)
+        self.declare_parameter("lidar_r_max", 100.0)
         self.lidar_r_max = self.get_parameter("lidar_r_max").value
 
-        self.declare_parameter("lidar_r_min", 0.2)
+        self.declare_parameter("lidar_r_min", 0.01)
         self.lidar_r_min = self.get_parameter("lidar_r_min").value
 
         self.declare_parameter("lidar_delta_theta", 3)
@@ -73,8 +73,8 @@ class PhysicsSimNode(Node):
         self.beacon_pub_timer = self.create_timer(0.1, self.beacon_publish_cb)
         self.sim_update_timer = self.create_timer(self.sim_dt, self.sim_update_cb)
 
-        self.pos_ideal = np.array([2, 2, 0], dtype=float)  # Ideal position without noise
-        self.pos_true = np.array([2, 2, 0], dtype=float)   # True physical position with velocity noise
+        self.pos_ideal = np.array([0, 0, 0], dtype=float)  # Ideal position without noise
+        self.pos_true = np.array([0, 0, 0], dtype=float)   # True physical position with velocity noise
         self.vel_true = np.array([0, 0, 0], dtype=float)   # Velocity with noise (slippage)
         self.vel_ideal = np.array([0, 0, 0], dtype=float)  # Commanded velocity
         self.pos_est = np.array([0, 0, 0], dtype=float)
@@ -188,6 +188,7 @@ class PhysicsSimNode(Node):
         safe_pos = np.array(current_pos)  # Last known safe position
         test_pos = np.array(current_pos)
         increment_distance = 0.0
+        test_collides = False
         
         # Use smaller increments to ensure we don't miss collisions
         while increment_distance < distance:
