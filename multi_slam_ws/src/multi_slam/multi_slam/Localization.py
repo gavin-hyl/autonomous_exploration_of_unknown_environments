@@ -56,9 +56,9 @@ class Localization:
                 return -float('inf')
             
             closest_beacon, _, _ = estimated_map.get_closest_beacon(global_beacon)
-            if closest_beacon is not None:
+            if closest_beacon is None:
                 return -float('inf')
-            
+
             score += max(0, min(100, 1 / np.sqrt(sum((closest_beacon - global_beacon) ** 2))))
         
         return score
