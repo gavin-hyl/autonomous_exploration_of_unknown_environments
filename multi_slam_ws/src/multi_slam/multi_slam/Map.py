@@ -187,7 +187,7 @@ class Map:
 # Example usage:
 
 # Create a map with a rectangular boundary from (0,0) to (10,10)
-MAP = Map(0, 0, 10, 10)
+MAP = Map(-10, -10, 10, 10)
 
 # Create and add a polygon obstacle
 obstacle = Polygon([
