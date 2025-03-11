@@ -133,7 +133,6 @@ class SLAMNode(Node):
         self.position = updated_position
         self.position_cov = updated_cov
         
-        Mapping
         self.map.update(
             robot_pos=self.position,
             robot_cov=self.position_cov,
@@ -141,19 +140,7 @@ class SLAMNode(Node):
             lidar_range=self.lidar_range,
             beacon_data=self.beacon_data
         )
-        
-        # Visualization
-        # self.publish_pose()
-        # self.publish_map()
-        # self.publish_beacons()
-        # self.publish_path()
-        
-        # # Control update based on selected method
-        # if self.use_proposed_control:
-        #     self.update_control_proposed()
-        # else:
-        #     # Using existing teleop code (no changes needed as it comes from /cmd_vel)
-        #     pass
+
 
     def update_control_proposed(self):
         """Proposed control method: optimize towards finding beacons based on current map and position"""
