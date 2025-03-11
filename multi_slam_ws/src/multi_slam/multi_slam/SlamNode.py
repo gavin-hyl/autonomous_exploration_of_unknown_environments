@@ -121,11 +121,12 @@ class SLAMNode(Node):
     def slam_loop(self):
         """Main SLAM loop"""
         # Localization
-        # updated_position, updated_cov = self.localization.update_position(
-        #     self.control_input,
-        #     self.beacon_data,
-        #     self.map
-        # )
+        self.get_logger().info("Updating position")
+        updated_position, updated_cov = self.localization.update_position(
+            self.control_input,
+            self.beacon_data,
+            self.map
+        )
         
         # updated_position[2] = 0.0
         # self.position = updated_position

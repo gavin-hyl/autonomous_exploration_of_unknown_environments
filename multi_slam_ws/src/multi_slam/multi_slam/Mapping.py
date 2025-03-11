@@ -244,5 +244,25 @@ class Mapping:
         lor = self.log_odds_grid[grid_x, grid_y]
         prob = np.exp(lor) / (1 + np.exp(lor))
         return prob
-        
     
+    def world_to_prob_batch(self, coords):
+        """
+        Convert world coordinates to probabilities in batch.
+
+        Args:
+            coords: Nx2 array of world coordinates (x,y)
+
+        Returns:
+            1D array of probabilities for each coordinate
+        """
+        # Convert to grid coordinates
+        grid_x = ((coords[:, 0] - self.map_origin[0]) / self.grid_size).astype(int)
+        grid_y = ((coords[:, 1] - self.map_origin[1]) / self.grid_size).astype(int)
+
+        # Get log odds values
+        log_odds = self.log_odds_grid[grid_x, grid_y]
+
+        # Convert to probabilities using vectorized operations
+        probs = np.exp(log_odds) / (1 + np.exp(log_odds))
+
+        return probs

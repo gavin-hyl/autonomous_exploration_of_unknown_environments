@@ -15,7 +15,6 @@ class Localization:
         # control signal: single array (delta_x, delta_y, delta_z)
         # beacon data: list of arrays (delta_x, delta_y, delta_z)
         # estimated map: object to get occupancy grid and beacon data
-
         predicted_location = self.current_location + control_signal * self.dt
 
         # generate particles with gaussian noise
@@ -24,7 +23,7 @@ class Localization:
             # z is fixed to 0
             particle_location = predicted_location + [np.random.normal(0, self.std_dev_noise), np.random.normal(0, self.std_dev_noise), 0.0]
             particles.append(particle_location)
-        
+
         # calculate score for each particle
         scores = []
         for particle in particles:
@@ -56,7 +55,7 @@ class Localization:
                     invalid_particle = True
             
             (closest_beacon, _, _) = estimated_map.get_closest_beacon(global_beacon)
-            if closest_beacon is not None:
+            if closest_beacon is None:
                 invalid_particle = True
             
             if invalid_particle:
