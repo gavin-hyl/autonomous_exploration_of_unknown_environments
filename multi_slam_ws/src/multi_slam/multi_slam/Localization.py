@@ -1,3 +1,5 @@
+import numpy as np
+
 class Localization:
     def __init__(self, initial_location, std_dev_noise, num_particles, dt):
         self.current_location = initial_location
@@ -28,12 +30,12 @@ class Localization:
         for particle in particles:
             scores.append(self.calculate_score(particle, beacon_data, estimated_map))
 
-        # normalize scores (sum to 1)
-        scores = np.array(scores)
-        scores = scores / np.sum(scores)
+        exp_sum = sum(np.exp(scores))
+        scores = [np.exp(score) / exp_sum for score in scores]
 
         # resample particles
-        particles = np.random.choice(particles, size=self.num_particles, p=scores)
+        particles_idx = np.random.choice(range(len(particles)), size=self.num_particles, p=scores)
+        particles = [particles[i] for i in particles_idx]
 
         # update current location
         self.current_location = np.mean(particles, axis=0)
@@ -47,14 +49,13 @@ class Localization:
         invalid_particle = False
         # for each beacon measurement
         for beacon_measurement in beacon_data:
-            
             global_beacon = self.current_location + beacon_measurement
             # check if the line between particle and beacon is occupied
             for (x, y) in self.create_2d_line(particle[0:2], global_beacon[0:2]):
-                if estimated_map.get_occupancy(x, y) > self.occupancy_threshold:
+                if estimated_map.world_to_prob(x, y) > self.occupancy_threshold:
                     invalid_particle = True
             
-            (closest_beacon, _) = estimated_map.get_closest_beacon(estimated_map, global_beacon)
+            (closest_beacon, _, _) = estimated_map.get_closest_beacon(global_beacon)
             if closest_beacon is not None:
                 invalid_particle = True
             
@@ -62,10 +63,10 @@ class Localization:
                 score = -float('inf')
                 break
             else:
-                score += 1 / np.sqrt(sum((closest_beacon - global_beacon) ** 2))
+                score += max(0, min(100, 1 / np.sqrt(sum((closest_beacon - global_beacon) ** 2))))
         return score
     
-    def create_2d_line(start, end):
+    def create_2d_line(self, start, end):
         x1, y1 = start
         x2, y2 = end
         points = []

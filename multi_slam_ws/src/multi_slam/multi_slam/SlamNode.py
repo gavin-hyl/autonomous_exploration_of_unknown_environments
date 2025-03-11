@@ -3,7 +3,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import PoseStamped, Vector3, Twist
-from nav_msgs.msg import OccupancyGrid, Path
+from nav_msgs.msg import OccupancyGrid, Path, MapMetaData
 from visualization_msgs.msg import Marker, MarkerArray
 from multi_slam.Map import Map
 from multi_slam.Localization import Localization
@@ -24,7 +24,7 @@ class SLAMNode(Node):
         self.declare_parameter('map_origin_x', -50.0)
         self.declare_parameter('map_origin_y', -50.0)
         self.declare_parameter('grid_size', 0.1)
-        self.declare_parameter('num_particles', 100)
+        self.declare_parameter('num_particles', 10)
         self.declare_parameter('position_std_dev', 0.1)
         self.declare_parameter('use_proposed_control', True)  # Flag to switch between control methods
         
@@ -56,7 +56,7 @@ class SLAMNode(Node):
         # Initialize Localization
         self.localization = Localization(
             initial_location=initial_position, 
-            std_dev=position_std_dev,
+            std_dev_noise=position_std_dev,
             num_particles=num_particles,
             dt=self.dt
         )
@@ -120,43 +120,39 @@ class SLAMNode(Node):
 
     def slam_loop(self):
         """Main SLAM loop"""
-        try:
-            # Localization
-            updated_position, updated_cov = self.localization.update_position(
-                self.control_input,
-                self.beacon_data,
-                self.map
-            )
-            
-            # Always set the orientation (theta) to 0 for 2D robot
-            updated_position[2] = 0.0
-            self.position = updated_position
-            self.position_cov = np.diag([updated_cov[0], updated_cov[1], 0.0])  # Zero variance for theta
-            
-            # Mapping
-            self.map.update(
-                robot_pos=self.position,
-                robot_cov=self.position_cov,
-                lidar_data=self.lidar_data,
-                lidar_range=self.lidar_range,
-                beacon_data=self.beacon_data
-            )
-            
-            # Visualization
-            self.publish_pose()
-            self.publish_map()
-            self.publish_beacons()
-            self.publish_path()
-            
-            # Control update based on selected method
-            if self.use_proposed_control:
-                self.update_control_proposed()
-            else:
-                # Using existing teleop code (no changes needed as it comes from /cmd_vel)
-                pass
-                
-        except Exception as e:
-            self.get_logger().error(f"Error in SLAM loop: {e}")
+        # Localization
+        updated_position, updated_cov = self.localization.update_position(
+            self.control_input,
+            self.beacon_data,
+            self.map
+        )
+        self.get_logger().info("SLAM loop")
+        
+        updated_position[2] = 0.0
+        self.position = updated_position
+        self.position_cov = updated_cov
+        
+        # Mapping
+        # self.map.update(
+        #     robot_pos=self.position,
+        #     robot_cov=self.position_cov,
+        #     lidar_data=self.lidar_data,
+        #     lidar_range=self.lidar_range,
+        #     beacon_data=self.beacon_data
+        # )
+        
+        # Visualization
+        # self.publish_pose()
+        self.publish_map()
+        # self.publish_beacons()
+        # self.publish_path()
+        
+        # # Control update based on selected method
+        # if self.use_proposed_control:
+        #     self.update_control_proposed()
+        # else:
+        #     # Using existing teleop code (no changes needed as it comes from /cmd_vel)
+        #     pass
 
     def update_control_proposed(self):
         """Proposed control method: optimize towards finding beacons based on current map and position"""
@@ -226,27 +222,28 @@ class SLAMNode(Node):
 
     def publish_map(self):
         """Publish occupancy grid"""
+        self.get_logger().info("Publishing map")
+
+        # Create occupancy grid message
         msg = OccupancyGrid()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
         
-        # Map metadata
+        # Set metadata
+        msg.info.width = self.map.log_odds_grid.shape[1]
+        msg.info.height = self.map.log_odds_grid.shape[0]
         msg.info.resolution = self.map.grid_size
-        msg.info.width = self.map.log_odds_grid.shape[0]
-        msg.info.height = self.map.log_odds_grid.shape[1]
+        
+        # Set origin (position and orientation)
         msg.info.origin.position.x = self.map.map_origin[0]
         msg.info.origin.position.y = self.map.map_origin[1]
-        
-        # Convert log-odds to probabilities and then to occupancy values [0, 100]
-        grid_prob = np.zeros_like(self.map.log_odds_grid)
-        for i in range(grid_prob.shape[0]):
-            for j in range(grid_prob.shape[1]):
-                log_odds = self.map.log_odds_grid[i, j]
-                prob = 1.0 / (1.0 + np.exp(-log_odds))
-                grid_prob[i, j] = int(prob * 100)
-                
-        # Flatten and convert to int8
-        msg.data = grid_prob.flatten().astype(np.int8).tolist()
+        msg.info.origin.position.z = 0.0
+        msg.info.origin.orientation.w = 1.0
+
+        clipped_grid = np.clip(self.map.log_odds_grid, -10.0, 10.0)        
+        probs = 1.0 / (1.0 + np.exp(-clipped_grid))
+        occupancy = (probs * 100).astype(np.int8)
+        msg.data = occupancy.flatten().tolist()
         self.map_pub.publish(msg)
 
     def publish_beacons(self):

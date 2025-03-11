@@ -23,6 +23,13 @@ def generate_launch_description():
             name='controller_node',
             output='screen'
         ),
+        # SLAM node for simultaneous localization and mapping
+        Node(
+            package='multi_slam',
+            executable='slam_node',
+            name='slam_node',
+            output='screen',
+        ),
         Node(
             package='rviz2',
             executable='rviz2',

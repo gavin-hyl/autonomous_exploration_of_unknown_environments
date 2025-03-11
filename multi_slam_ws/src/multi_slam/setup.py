@@ -25,6 +25,7 @@ setup(
             'physics_sim = multi_slam.PhysicsSimNode:main',
             'controller_node = multi_slam.ControllerNode:main',
             'teleop_keyboard = multi_slam.teleop_keyboard:main',
+            'slam_node = multi_slam.SlamNode:main',
         ],
     },
 )
