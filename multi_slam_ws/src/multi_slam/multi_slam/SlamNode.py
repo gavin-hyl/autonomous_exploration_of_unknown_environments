@@ -90,12 +90,13 @@ class SLAMNode(Node):
         
         # Timer for SLAM main loop
         self.create_timer(self.dt, self.slam_loop)
+
+        self.map_pub_timer = self.create_timer(1.0, self.publish_map)
         
         # Path for visualization
         self.path = Path()
         self.path.header.frame_id = "map"
         
-        self.get_logger().info("SLAM Node initialized")
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data"""
@@ -120,15 +121,15 @@ class SLAMNode(Node):
     def slam_loop(self):
         """Main SLAM loop"""
         # Localization
-        updated_position, updated_cov = self.localization.update_position(
-            self.control_input,
-            self.beacon_data,
-            self.map
-        )
+        # updated_position, updated_cov = self.localization.update_position(
+        #     self.control_input,
+        #     self.beacon_data,
+        #     self.map
+        # )
         
-        updated_position[2] = 0.0
-        self.position = updated_position
-        self.position_cov = updated_cov
+        # updated_position[2] = 0.0
+        # self.position = updated_position
+        # self.position_cov = updated_cov
         
         # Mapping
         # self.map.update(
@@ -141,7 +142,7 @@ class SLAMNode(Node):
         
         # Visualization
         # self.publish_pose()
-        self.publish_map()
+        # self.publish_map()
         # self.publish_beacons()
         # self.publish_path()
         
@@ -226,29 +227,18 @@ class SLAMNode(Node):
         msg = OccupancyGrid()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.header.frame_id = "map"
-        
-        # Set metadata
+        msg.info.map_load_time = self.get_clock().now().to_msg()
+        msg.info.resolution = self.map.grid_size
         msg.info.width = self.map.grid_width
         msg.info.height = self.map.grid_height
-        msg.info.resolution = self.map.grid_size
         
         # Set origin (position and orientation)
         msg.info.origin.position.x = self.map.map_origin[0]
         msg.info.origin.position.y = self.map.map_origin[1]
-        msg.info.origin.position.z = 0.0
-        msg.info.origin.orientation.w = 1.0
-
-        # Clip log-odds values to prevent extreme probabilities
-        clipped_grid = np.clip(self.map.log_odds_grid, -10.0, 10.0)        
         
         # Convert log-odds to probabilities (0-100)
-        probs = 1.0 / (1.0 + np.exp(-clipped_grid))
-        # Convert to standard OccupancyGrid format (0-100 for free-occupied, -1 for unknown)
-        occupancy = np.round(probs * 99).astype(np.int8)
-        
-        # Flatten in row-major order (required by RViz)
-        flat_occupancy = occupancy.flatten().tolist()
-        msg.data = flat_occupancy
+        probs = 1.0 / (1.0 + np.exp(-self.map.log_odds_grid))
+        msg.data = (probs * 100).astype(int).flatten().tolist()
         
         self.map_pub.publish(msg)
 
