@@ -17,54 +17,51 @@ class Localization:
         # estimated map: object to get occupancy grid and beacon data
         predicted_location = self.current_location + control_signal * self.dt
 
-        # generate particles with gaussian noise
-        particles = []
-        for i in range(self.num_particles):
-            # z is fixed to 0
-            particle_location = predicted_location + [np.random.normal(0, self.std_dev_noise), np.random.normal(0, self.std_dev_noise), 0.0]
-            particles.append(particle_location)
-
-        # calculate score for each particle
-        scores = []
-        for particle in particles:
-            scores.append(self.calculate_score(particle, beacon_data, estimated_map))
-
-        exp_sum = sum(np.exp(scores))
-        scores = [np.exp(score) / exp_sum for score in scores]
-
-        # resample particles
-        particles_idx = np.random.choice(range(len(particles)), size=self.num_particles, p=scores)
-        particles = [particles[i] for i in particles_idx]
-
-        # update current location
+        # Vectorized particle generation
+        noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
+        particles = predicted_location + np.pad(noise, ((0, 0), (0, 1)))  # pad with zeros for z
+        
+        # Calculate scores (could be parallelized if needed)
+        scores = np.array([self.calculate_score(p, beacon_data, estimated_map) for p in particles])
+        
+        # Vectorized softmax
+        scores = np.exp(scores - np.max(scores))  # Subtract max for numerical stability
+        scores /= scores.sum()
+        
+        # Efficient resampling
+        particles_idx = np.random.choice(self.num_particles, size=self.num_particles, p=scores)
+        particles = np.array(particles)[particles_idx]
+        
+        # Update current location and covariance
         self.current_location = np.mean(particles, axis=0)
         self.covariance_matrix = np.cov(particles, rowvar=False)
-
+        
         return self.current_location, self.covariance_matrix
 
     def calculate_score(self, particle, beacon_data, estimated_map):
         score = 0 
-
-        invalid_particle = False
-        # for each beacon measurement
-        for beacon_measurement in beacon_data:
-            global_beacon = self.current_location + beacon_measurement
-            # check if the line between particle and beacon is occupied
-            for (x, y) in self.create_2d_line(particle[0:2], global_beacon[0:2]):
-                if estimated_map.world_to_prob(x, y) > self.occupancy_threshold:
-                    invalid_particle = True
+        
+        # Check beacons in batch rather than one at a time
+        global_beacons = [self.current_location + beacon for beacon in beacon_data]
+        
+        # Use numpy operations for faster calculations
+        for global_beacon in global_beacons:
+            # Sample fewer points along the line
+            points = self.create_2d_line_fast(particle[0:2], global_beacon[0:2])
             
-            (closest_beacon, _, _) = estimated_map.get_closest_beacon(global_beacon)
+            # Batch check occupancy
+            occupancies = estimated_map.world_to_prob_batch(points)
+            if np.any(occupancies > self.occupancy_threshold):
+                return -float('inf')
+            
+            closest_beacon, _, _ = estimated_map.get_closest_beacon(global_beacon)
             if closest_beacon is None:
-                invalid_particle = True
-            
-            if invalid_particle:
-                score = -float('inf')
-                break
-            else:
-                score += max(0, min(100, 1 / np.sqrt(sum((closest_beacon - global_beacon) ** 2))))
+                return -float('inf')
+
+            score += max(0, min(100, 1 / np.sqrt(sum((closest_beacon - global_beacon) ** 2))))
+        
         return score
-    
+
     def create_2d_line(self, start, end):
         x1, y1 = start
         x2, y2 = end
@@ -96,3 +93,15 @@ class Localization:
                 y += step_y
         
         return points
+
+    def create_2d_line_fast(self, start, end, num_samples=10):
+        """Faster line creation with fewer samples"""
+        x1, y1 = start
+        x2, y2 = end
+        
+        # Create evenly spaced points along the line
+        t = np.linspace(0, 1, num_samples)
+        x = x1 + (x2 - x1) * t
+        y = y1 + (y2 - y1) * t
+        
+        return np.column_stack((x, y))
