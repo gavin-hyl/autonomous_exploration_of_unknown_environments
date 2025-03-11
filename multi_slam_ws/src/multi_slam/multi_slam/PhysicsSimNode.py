@@ -73,8 +73,8 @@ class PhysicsSimNode(Node):
         self.beacon_pub_timer = self.create_timer(0.1, self.beacon_publish_cb)
         self.sim_update_timer = self.create_timer(self.sim_dt, self.sim_update_cb)
 
-        self.pos_ideal = np.array([2, 2, 0], dtype=float)  # Ideal position without noise
-        self.pos_true = np.array([2, 2, 0], dtype=float)   # True physical position with velocity noise
+        self.pos_ideal = np.array([0, 0, 0], dtype=float)  # Ideal position without noise
+        self.pos_true = np.array([0, 0, 0], dtype=float)   # True physical position with velocity noise
         self.vel_true = np.array([0, 0, 0], dtype=float)   # Velocity with noise (slippage)
         self.vel_ideal = np.array([0, 0, 0], dtype=float)  # Commanded velocity
         self.pos_est = np.array([0, 0, 0], dtype=float)

@@ -3,7 +3,7 @@ from shapely.geometry import Polygon, Point, LineString
 from shapely.geometry.base import BaseGeometry
 import math
 import numpy as np
-
+from shapely.geometry import Circle
 class Map:
     """
     Represents a 2D map with a rectangular boundary, obstacles, and beacons.
@@ -187,16 +187,14 @@ class Map:
 # Example usage:
 
 # Create a map with a rectangular boundary from (0,0) to (10,10)
-MAP = Map(-10, -10, 10, 10)
+MAP = Map(-100, -100, 100, 100)
 
-# Create and add a polygon obstacle
-obstacle = Polygon([
-    (3, 3), (5, 3), (5, 5), (3, 5)
-])
-MAP._add_obstacle(obstacle)
+for x in [-87.5, 0, 87.5]:
+    for y in [-87.5, 0, 87.5]:
+        MAP._add_beacon(Point(x, y))
 
-# Create and add a line obstacle
-# obstacle2 = LineString([(1, 9), (9, 1)])
-# MAP._add_obstacle(obstacle2)
+for center_x in [-50, 50]:
+    for center_y in [-50, 50]:
+        radius = 25
+        MAP._add_obstacle(Circle(Point(center_x, center_y), radius))
 
-MAP._add_beacon(Point(1, 1))
