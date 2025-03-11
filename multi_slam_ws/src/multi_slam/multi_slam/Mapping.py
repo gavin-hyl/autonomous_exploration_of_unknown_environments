@@ -29,7 +29,9 @@ class Mapping:
 
         Args:
             robot_pos: x, y, z
+            robot_cov: 3x3 covariance matrix
             lidar_data: list of 1d numpy arrays
+            lidar_range: tuple of min and max range
             beacon_data: list of 1d numpy arrays
 
         Returns:
