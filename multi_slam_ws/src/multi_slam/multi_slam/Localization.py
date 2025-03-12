@@ -12,6 +12,7 @@ class Localization:
 
     def update_position(self, pos_hat_new, beacon_data, estimated_map):
         # self.current_location = pos_hat_new
+        # return self.current_location, self.covariance_matrix
 
         # Vectorized particle generation
         noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
