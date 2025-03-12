@@ -37,7 +37,7 @@ class PhysicsSimNode(Node):
         self.beacon_std_dev = self.get_parameter("beacon_std_dev").value
 
         # Velocity parameters
-        self.declare_parameter("vel_std_dev", 0.3)  # New parameter for velocity noise
+        self.declare_parameter("vel_std_dev", 0.5)  # New parameter for velocity noise
         self.vel_std_dev = self.get_parameter("vel_std_dev").value
 
         self.declare_parameter("collision_buffer", 0.1)  # Buffer distance from obstacles
