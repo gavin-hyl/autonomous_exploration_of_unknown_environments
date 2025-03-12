@@ -22,7 +22,7 @@ class SLAMNode(Node):
         self.declare_parameter('map_origin_x', -50.0)
         self.declare_parameter('map_origin_y', -50.0)
         self.declare_parameter('grid_size', 0.1)
-        self.declare_parameter('num_particles', 100)
+        self.declare_parameter('num_particles', 1000)
         self.declare_parameter('position_std_dev', 0.1)
         self.declare_parameter('use_proposed_control', True)  # Flag to switch between control methods
         self.declare_parameter('debug_visualization', True)   # Flag to enable debug visualization
@@ -132,6 +132,7 @@ class SLAMNode(Node):
         )
         
         updated_position[2] = 0.0
+        # self.position = self.pos_hat_new
         self.position = updated_position
         self.position_cov = updated_cov
         

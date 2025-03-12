@@ -11,27 +11,27 @@ class Localization:
 
 
     def update_position(self, pos_hat_new, beacon_data, estimated_map):
-        self.current_location = pos_hat_new
+        # self.current_location = pos_hat_new
+        # return self.current_location, self.covariance_matrix
 
-
-        # # Vectorized particle generation
-        # noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
-        # particles = predicted_location + np.pad(noise, ((0, 0), (0, 1)))  # pad with zeros for z
+        # Vectorized particle generation
+        noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
+        particles = pos_hat_new + np.pad(noise, ((0, 0), (0, 1)))  # pad with zeros for z
         
-        # # Calculate scores (could be parallelized if needed)
-        # scores = np.array([self.calculate_score(p, beacon_data, estimated_map) for p in particles])
+        # Calculate scores (could be parallelized if needed)
+        scores = np.array([self.calculate_score(p, beacon_data, estimated_map) for p in particles])
         
-        # # Vectorized softmax
-        # scores = np.exp(scores - np.max(scores))  # Subtract max for numerical stability
-        # scores /= scores.sum()
+        # Vectorized softmax
+        scores = np.exp(scores - np.max(scores))  # Subtract max for numerical stability
+        scores /= scores.sum()
         
-        # # Efficient resampling
-        # particles_idx = np.random.choice(self.num_particles, size=self.num_particles, p=scores)
-        # particles = np.array(particles)[particles_idx]
+        # Efficient resampling
+        particles_idx = np.random.choice(self.num_particles, size=self.num_particles, p=scores)
+        particles = np.array(particles)[particles_idx]
         
-        # # Update current location and covariance
-        # self.current_location = np.mean(particles, axis=0)
-        # self.covariance_matrix = np.cov(particles, rowvar=False)
+        # Update current location and covariance
+        self.current_location = np.mean(particles, axis=0)
+        self.covariance_matrix = np.cov(particles, rowvar=False)
         
         return self.current_location, self.covariance_matrix
 

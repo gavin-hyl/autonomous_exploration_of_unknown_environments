@@ -67,25 +67,25 @@ class Mapping:
                     self.log_odds_grid[grid_y, grid_x] += self.L_OCC
         
         # Process beacon data
-        # if beacon_data:
-        #     for beacon in beacon_data:
-        #         # Convert beacon from robot frame to world frame
-        #         beacon_world = robot_pos + beacon
+        if beacon_data:
+            for beacon in beacon_data:
+                # Convert beacon from robot frame to world frame
+                beacon_world = robot_pos + beacon
                 
-        #         # Scale covariance by distance - higher uncertainty at greater distances
-        #         distance = np.linalg.norm(beacon)
-        #         scaled_cov = robot_cov * (1.0 + 0.1 * distance)
+                # Scale covariance by distance - higher uncertainty at greater distances
+                distance = np.linalg.norm(beacon)
+                scaled_cov = robot_cov * (1.0 + 0.1 * distance)
                 
-        #         # Find closest beacon in map, or add a new one
-        #         closest_beacon = self.get_closest_beacon(beacon_world)
-        #         if closest_beacon is not None:
-        #             # Update existing beacon
-        #             # Here you'd update position using Kalman filter or similar
-        #             pass
-        #         else:
-        #             # Add new beacon to the list
-        #             self.beacon_positions.append(beacon_world)
-        #             self.beacon_covariances.append(scaled_cov)
+                # Find closest beacon in map, or add a new one
+                closest_beacon = self.get_closest_beacon(beacon_world)
+                if closest_beacon is not None:
+                    # Update existing beacon
+                    # Here you'd update position using Kalman filter or similar
+                    pass
+                else:
+                    # Add new beacon to the list
+                    self.beacon_positions.append(beacon_world)
+                    self.beacon_covariances.append(scaled_cov)
         
         # Apply log-odds bounds to prevent saturation
         self.log_odds_grid = np.clip(self.log_odds_grid, -10.0, 10.0)
@@ -97,7 +97,7 @@ class Mapping:
         mindex = np.argmin(dists)
         min_dist = dists[mindex]
         if min_dist > self.BEACON_DIST_THRESH:
-            return None
+            return None, None, None
         return self.beacon_positions[mindex], self.beacon_covariances[mindex], mindex
 
     def _bresenham_line(self, start, end):
