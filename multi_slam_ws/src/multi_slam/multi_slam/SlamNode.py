@@ -132,7 +132,7 @@ class SLAMNode(Node):
         )
         
         updated_position[2] = 0.0
-        self.position = updated_position
+        self.position = self.pos_hat_new
         self.position_cov = updated_cov
         
         pos_hat_msg = Vector3()
