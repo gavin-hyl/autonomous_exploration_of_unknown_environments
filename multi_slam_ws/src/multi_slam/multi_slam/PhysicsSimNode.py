@@ -74,6 +74,9 @@ class PhysicsSimNode(Node):
         self.pos_hat_new = np.array([0, 0, 0], dtype=float) # Estimated position by SLAM node
         self.pos_hat_sub = self.create_subscription(Vector3, "/pos_hat", self.pos_hat_cb, 10)
         self.pos_hat_new_pub = self.create_publisher(Vector3, "/pos_hat_new", 10)
+
+        self.pos_baseline = np.array([0, 0, 0], dtype=float)
+        self.pos_baseline_viz_pub = self.create_publisher(Marker, "/pos_baseline_viz", 10)
         ### ================================
 
     def pos_hat_cb(self, msg: Vector3):
@@ -269,7 +272,7 @@ class PhysicsSimNode(Node):
         )
         self.beacon_viz_pub.publish(beacon_positions_world_msg)
 
-    def publish_true_pos(self):
+    def pub_pos_true_viz(self):
         """Publish the true position marker (actual physical position with noise)"""
         marker = Marker()
         marker.header.stamp = self.get_clock().now().to_msg()
@@ -313,8 +316,34 @@ class PhysicsSimNode(Node):
 
         intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
         self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
-            
-        self.publish_true_pos()
+
+        self.pos_baseline += self.vel_ideal * self.sim_dt
+        self.pub_pos_true_viz()
+        self.pub_pos_baseline_viz()
+
+    def pub_pos_baseline_viz(self):
+        marker = Marker()
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.header.frame_id = "map"
+        marker.ns = "baseline_position"
+        marker.id = 2
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+
+        marker.pose.position.x = self.pos_baseline[0]
+        marker.pose.position.y = self.pos_baseline[1]
+        marker.pose.position.z = self.pos_baseline[2]
+        
+        marker.scale.x = 0.6
+        marker.scale.y = 0.6
+        marker.scale.z = 0.6
+
+        marker.color.r = 0.0
+        marker.color.g = 0.0
+        marker.color.b = 1.0
+        marker.color.a = 0.5
+
+        self.pos_baseline_viz_pub.publish(marker)
 
 
 def main(args=None):

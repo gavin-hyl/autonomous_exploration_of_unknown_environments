@@ -146,6 +146,19 @@ Visualization Manager:
         Reliability Policy: Reliable
         Value: /pos_hat_viz
       Value: true
+    - Class: rviz_default_plugins/Marker
+      Enabled: true
+      Name: Marker
+      Namespaces:
+        baseline_position: true
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        Filter size: 10
+        History Policy: Keep Last
+        Reliability Policy: Reliable
+        Value: /pos_baseline_viz
+      Value: true
   Enabled: true
   Global Options:
     Background Color: 48; 48; 48
@@ -201,7 +214,7 @@ Visualization Manager:
       Invert Z Axis: false
       Name: Current View
       Near Clip Distance: 0.009999999776482582
-      Scale: 111.5406494140625
+      Scale: 45.0896110534668
       Target Frame: <Fixed Frame>
       Value: TopDownOrtho (rviz_default_plugins)
       X: 1.1557238101959229
