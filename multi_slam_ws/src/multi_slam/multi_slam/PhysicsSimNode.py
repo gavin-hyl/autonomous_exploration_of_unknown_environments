@@ -71,32 +71,20 @@ class PhysicsSimNode(Node):
         self.sim_time_pub = self.create_publisher(Float32, "/sim_time", 10)
 
         ### ================================
-        self.pos_hat = np.array([0, 0, 0], dtype=float) # Estimated position by SLAM node
+        self.pos_hat_new = np.array([0, 0, 0], dtype=float) # Estimated position by SLAM node
         self.pos_hat_sub = self.create_subscription(Vector3, "/pos_hat", self.pos_hat_cb, 10)
         self.pos_hat_new_pub = self.create_publisher(Vector3, "/pos_hat_new", 10)
-        self.pos_hat_new = np.array([0, 0, 0], dtype=float)
         ### ================================
 
     def pos_hat_cb(self, msg: Vector3):
-        self.pos_hat = np.array([msg.x, msg.y, msg.z])
+        self.pos_hat_new = np.array([msg.x, msg.y, msg.z])
 
     def control_signal_cb(self, msg: Vector3):
-        # Store the commanded velocity as ideal velocity
         self.vel_ideal = np.array([msg.x, msg.y, 0.0])
-        
-        # Create noisy velocity to simulate slippage
         noise = np.random.normal(0, self.vel_std_dev, 3)
         noise[2] = 0.0  # Keep z component at 0
         self.vel_true = self.vel_ideal + noise
         
-        intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
-        
-        
-        # Check collision for true position and update it
-        self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
-        
-        # Still set the flag for the timer-based updates
-        self.control_signal_received = True
 
     def _apply_2d_noise(self, points: np.array, std_dev: float):
         noisy_points = []
@@ -142,6 +130,7 @@ class PhysicsSimNode(Node):
         """
         Enhanced collision check using a point-based model with buffer
         """
+        
         # Create a circular buffer at the intended position
         robot_circle = self.create_robot_polygon(intended_pos)
         
@@ -203,14 +192,7 @@ class PhysicsSimNode(Node):
             test_poly = self.create_robot_polygon(test_pos)
             
             # Check for collisions at test position
-            test_collides = False
-            for obstacle in MAP.obstacles:
-                if test_poly.intersects(obstacle):
-                    test_collides = True
-                    break
-                    
-            if test_poly.intersects(MAP.boundary):
-                test_collides = True
+            test_collides = bool(MAP.intersections(test_poly))
                 
             # If collision detected, return the last safe position
             if test_collides:
@@ -322,26 +304,17 @@ class PhysicsSimNode(Node):
         self.pos_true_viz_pub.publish(marker)
 
     def sim_update_cb(self):
-        # Check if there's any movement (non-zero velocity)
-        is_moving = not np.allclose(self.vel_ideal, [0, 0, 0], atol=1e-6)
-        
-        if is_moving and self.control_signal_received:
-            # Most position updates now happen in control_signal_cb for responsiveness
-            # This is a backup update for continuous movement
-            
-            # Update positions if we're still moving but haven't received new controls
-            intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
-            self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
-            self.sim_time += self.sim_dt
-
-        self.pos_hat = self.pos_hat + self.vel_true * self.sim_dt
+        self.pos_hat_new += self.vel_ideal * self.sim_dt
         msg = Vector3()
-        msg.x = self.pos_hat[0]
-        msg.y = self.pos_hat[1]
-        msg.z = self.pos_hat[2]
+        msg.x = self.pos_hat_new[0]
+        msg.y = self.pos_hat_new[1]
+        msg.z = self.pos_hat_new[2]
         self.pos_hat_new_pub.publish(msg)
 
-        # Publish markers and sensor data
+        intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
+        self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
+        self.sim_time += self.sim_dt
+            
         self.publish_true_pos()
 
         sim_time_msg = Float32()

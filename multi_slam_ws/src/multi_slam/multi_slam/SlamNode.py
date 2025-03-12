@@ -144,6 +144,12 @@ class SLAMNode(Node):
         self.position = updated_position
         self.position_cov = updated_cov
         
+        pos_hat_msg = Vector3()
+        pos_hat_msg.x = self.position[0]
+        pos_hat_msg.y = self.position[1]
+        pos_hat_msg.z = self.position[2]
+        self.pos_hat_pub.publish(pos_hat_msg)
+        
         self.map.update(
             robot_pos=self.position,
             robot_cov=self.position_cov,
@@ -152,11 +158,6 @@ class SLAMNode(Node):
             beacon_data=self.beacon_data
         )
         
-        pos_hat_msg = Vector3()
-        pos_hat_msg.x = self.position[0]
-        pos_hat_msg.y = self.position[1]
-        pos_hat_msg.z = self.position[2]
-        self.pos_hat_pub.publish(pos_hat_msg)
 
 
 
@@ -195,8 +196,6 @@ class SLAMNode(Node):
 
     def publish_map(self):
         """Publish occupancy grid"""
-        self.get_logger().info("Publishing map")
-
         # Create occupancy grid message
         msg = OccupancyGrid()
         msg.header.stamp = self.get_clock().now().to_msg()
