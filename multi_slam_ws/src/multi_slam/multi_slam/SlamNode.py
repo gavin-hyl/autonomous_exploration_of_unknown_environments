@@ -79,10 +79,6 @@ class SLAMNode(Node):
         self.create_subscription(
             Vector3, "/control_signal", self.control_callback, 10
         )
-        
-        self.create_subscription(
-            Float32, "/sim_time", self.sim_time_callback, 10
-        )
 
         ### ================================
         self.create_subscription(
@@ -104,9 +100,6 @@ class SLAMNode(Node):
 
         self.map_pub_timer = self.create_timer(1.0, self.publish_map)
         self.pos_pub_timer = self.create_timer(1.0, self.publish_pos)
-
-        self.sim_time = 0.0
-        self.last_slam_time = self.sim_time
 
         self.pos_hat_new = np.array([0.0, 0.0, 0.0])
 
@@ -137,8 +130,6 @@ class SLAMNode(Node):
             self.beacon_data,
             self.map
         )
-        self.last_slam_time = self.sim_time
-
         
         updated_position[2] = 0.0
         self.position = updated_position
@@ -158,12 +149,6 @@ class SLAMNode(Node):
             beacon_data=self.beacon_data
         )
         
-
-
-
-
-    def sim_time_callback(self, msg: Float32):
-        self.sim_time = msg.data
 
 
     def publish_pos(self):

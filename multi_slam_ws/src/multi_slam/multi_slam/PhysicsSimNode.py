@@ -46,7 +46,7 @@ class PhysicsSimNode(Node):
         self.declare_parameter("collision_increment", 0.02)  # Smaller increment
         self.collision_increment = self.get_parameter("collision_increment").value
 
-        self.declare_parameter("sim_dt", 0.1)
+        self.declare_parameter("sim_dt", 0.5)
         self.sim_dt = self.get_parameter("sim_dt").value
 
         self.lidar_pub = self.create_publisher(PointCloud2, "lidar", 10)
@@ -313,13 +313,9 @@ class PhysicsSimNode(Node):
 
         intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
         self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
-        self.sim_time += self.sim_dt
             
         self.publish_true_pos()
 
-        sim_time_msg = Float32()
-        sim_time_msg.data = self.sim_time
-        self.sim_time_pub.publish(sim_time_msg)
 
 def main(args=None):
     rclpy.init(args=args)
