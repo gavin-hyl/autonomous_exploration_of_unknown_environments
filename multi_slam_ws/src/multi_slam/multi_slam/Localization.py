@@ -10,11 +10,9 @@ class Localization:
         self.occupancy_threshold = 0.5
 
 
-    def update_position(self, dt_sec, control_signal, beacon_data, estimated_map):
-        predicted_location = self.current_location + control_signal * dt_sec
-        self.current_location = predicted_location
+    def update_position(self, pos_hat_new, beacon_data, estimated_map):
+        self.current_location = pos_hat_new
 
-        return predicted_location, self.covariance_matrix
 
         # # Vectorized particle generation
         # noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
@@ -35,7 +33,7 @@ class Localization:
         # self.current_location = np.mean(particles, axis=0)
         # self.covariance_matrix = np.cov(particles, rowvar=False)
         
-        # return self.current_location, self.covariance_matrix
+        return self.current_location, self.covariance_matrix
 
     def calculate_score(self, particle, beacon_data, estimated_map):
         score = 0 

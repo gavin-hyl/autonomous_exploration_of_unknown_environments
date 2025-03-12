@@ -70,6 +70,16 @@ class PhysicsSimNode(Node):
         self.sim_time = 0.0
         self.sim_time_pub = self.create_publisher(Float32, "/sim_time", 10)
 
+        ### ================================
+        self.pos_hat = np.array([0, 0, 0], dtype=float) # Estimated position by SLAM node
+        self.pos_hat_sub = self.create_subscription(Vector3, "/pos_hat", self.pos_hat_cb, 10)
+        self.pos_hat_new_pub = self.create_publisher(Vector3, "/pos_hat_new", 10)
+        self.pos_hat_new = np.array([0, 0, 0], dtype=float)
+        ### ================================
+
+    def pos_hat_cb(self, msg: Vector3):
+        self.pos_hat = np.array([msg.x, msg.y, msg.z])
+
     def control_signal_cb(self, msg: Vector3):
         # Store the commanded velocity as ideal velocity
         self.vel_ideal = np.array([msg.x, msg.y, 0.0])
@@ -323,6 +333,14 @@ class PhysicsSimNode(Node):
             intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
             self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
             self.sim_time += self.sim_dt
+
+        self.pos_hat = self.pos_hat + self.vel_true * self.sim_dt
+        msg = Vector3()
+        msg.x = self.pos_hat[0]
+        msg.y = self.pos_hat[1]
+        msg.z = self.pos_hat[2]
+        self.pos_hat_new_pub.publish(msg)
+
         # Publish markers and sensor data
         self.publish_true_pos()
 

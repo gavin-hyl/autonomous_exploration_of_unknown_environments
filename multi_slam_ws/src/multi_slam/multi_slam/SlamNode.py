@@ -51,7 +51,7 @@ class SLAMNode(Node):
         self.position_cov = np.eye(3) * 0.1  # Initial covariance
         
         # Update rate
-        self.dt = 0.01
+        self.dt = 0.1
         
         # Initialize Localization
         self.localization = Localization(
@@ -83,11 +83,19 @@ class SLAMNode(Node):
         self.create_subscription(
             Float32, "/sim_time", self.sim_time_callback, 10
         )
+
+        ### ================================
+        self.create_subscription(
+            Vector3, "/pos_hat_new", self.pos_hat_new_callback, 10
+        )
+        self.pos_hat_pub = self.create_publisher(Vector3, "/pos_hat", 10)
+        ### ================================
+
+
         # Publishers
         self.pose_pub = self.create_publisher(Marker, "/pos_hat_viz", 10)
         self.map_pub = self.create_publisher(OccupancyGrid, "/occupancy_grid", 10)
         self.beacon_pub = self.create_publisher(MarkerArray, "/estimated_beacons", 10)
-        
         # Publisher for control commands (when using proposed control method)
         self.cmd_vel_pub = self.create_publisher(Vector3, "/control_signal", 10)
         
@@ -96,40 +104,36 @@ class SLAMNode(Node):
 
         self.map_pub_timer = self.create_timer(1.0, self.publish_map)
         self.pos_pub_timer = self.create_timer(1.0, self.publish_pos)
-        
-        # Path for visualization
-        self.path = Path()
-        self.path.header.frame_id = "map"
+
         self.sim_time = 0.0
         self.last_slam_time = self.sim_time
+
+        self.pos_hat_new = np.array([0.0, 0.0, 0.0])
 
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data"""
-        try:
-            points = list(read_points(msg, field_names=("x", "y", "z")))
-            self.lidar_data = [np.array([p[0], p[1], p[2]]) for p in points]
-        except Exception as e:
-            self.get_logger().error(f"Error processing lidar data: {e}")
+        points = list(read_points(msg, field_names=("x", "y", "z")))
+        self.lidar_data = [np.array([p[0], p[1], p[2]]) for p in points]
 
     def beacon_callback(self, msg: PointCloud2):
         """Process beacon data"""
-        try:
-            points = list(read_points(msg, field_names=("x", "y", "z")))
-            self.beacon_data = [np.array([p[0], p[1], p[2]]) for p in points]
-        except Exception as e:
-            self.get_logger().error(f"Error processing beacon data: {e}")
+        points = list(read_points(msg, field_names=("x", "y", "z")))
+        self.beacon_data = [np.array([p[0], p[1], p[2]]) for p in points]
 
     def control_callback(self, msg: Vector3):
         """Process control input"""
         self.control_input = np.array([msg.x, msg.y, msg.z])
 
+    def pos_hat_new_callback(self, msg: Vector3):
+        """Process updated position"""
+        self.pos_hat_new = np.array([msg.x, msg.y, msg.z])
+
     def slam_loop(self):
         """Main SLAM loop"""
         # Localization
         updated_position, updated_cov = self.localization.update_position(
-            self.control_input,
-            self.sim_time - self.last_slam_time,
+            self.pos_hat_new,
             self.beacon_data,
             self.map
         )
@@ -147,6 +151,15 @@ class SLAMNode(Node):
             lidar_range=self.lidar_range,
             beacon_data=self.beacon_data
         )
+        
+        pos_hat_msg = Vector3()
+        pos_hat_msg.x = self.position[0]
+        pos_hat_msg.y = self.position[1]
+        pos_hat_msg.z = self.position[2]
+        self.pos_hat_pub.publish(pos_hat_msg)
+
+
+
 
     def sim_time_callback(self, msg: Float32):
         self.sim_time = msg.data

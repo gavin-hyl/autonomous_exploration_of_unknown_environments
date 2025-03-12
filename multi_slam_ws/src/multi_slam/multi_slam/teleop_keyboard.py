@@ -53,7 +53,7 @@ class KeyboardTeleop(Node):
         self.declare_parameter('max_speed', 1.0)
         self.max_speed = self.get_parameter('max_speed').value
         
-        self.declare_parameter('publish_rate', 20.0)  # Higher rate for better responsiveness
+        self.declare_parameter('publish_rate', 10.0)  # Higher rate for better responsiveness
         self.publish_rate = self.get_parameter('publish_rate').value
         
         # Current state
