@@ -8,6 +8,7 @@ from visualization_msgs.msg import Marker, MarkerArray
 from multi_slam.Localization import Localization
 from multi_slam.Mapping import Mapping
 import numpy as np
+from sensor_msgs_py import point_cloud2
 from sensor_msgs_py.point_cloud2 import read_points
 import math
 import time
@@ -78,6 +79,12 @@ class SLAMNode(Node):
             Vector3, "/control_signal", self.control_callback, 10
         )
 
+
+        self.create_subscription(
+            PointCloud2, "/particles_pred", self.particles_pred_callback, 10
+        )
+        self.particles_pub = self.create_publisher(PointCloud2, "particles", 10)
+
         ### ================================
         self.create_subscription(
             Vector3, "/pos_hat_new", self.pos_hat_new_callback, 10
@@ -103,16 +110,18 @@ class SLAMNode(Node):
     def sim_done_cb(self, msg: Bool):
         self.get_logger().info("Slam loop updating")
         # Localization
-        updated_position, updated_cov = self.localization.update_position(
-            self.pos_hat_new,
+        particles, cov = self.localization.update_position(
             self.beacon_data,
             self.map
         )
-        
-        updated_position[2] = 0.0
+
+        pos_hat_new = np.average(particles, axis=0)
+        pos_hat_new[2] = 0.0
+
+        self.pos_hat_new = pos_hat_new
         self.position = self.pos_hat_new
         # self.position = updated_position
-        self.position_cov = updated_cov
+        self.position_cov = cov
         
         pos_hat_msg = Vector3()
         pos_hat_msg.x = self.position[0]
@@ -131,6 +140,7 @@ class SLAMNode(Node):
         self.publish_pos()
         self.publish_map()
         self.publish_beacons()
+        self.publish_particles()
 
         self.slam_done_pub.publish(Bool(data=True))
 
@@ -144,6 +154,11 @@ class SLAMNode(Node):
         points = list(read_points(msg, field_names=("x", "y", "z")))
         self.beacon_data = [np.array([p[0], p[1], p[2]]) for p in points]
 
+    def particles_pred_callback(self, msg: PointCloud2):
+        """Process particles predicted"""
+        points = list(read_points(msg, field_names=("x", "y", "z")))
+        self.localization.particles = [np.array([p[0], p[1], p[2]]) for p in points]
+
     def control_callback(self, msg: Vector3):
         """Process control input"""
         self.control_input = np.array([msg.x, msg.y, msg.z])
@@ -152,6 +167,15 @@ class SLAMNode(Node):
         """Process updated position"""
         self.pos_hat_new = np.array([msg.x, msg.y, msg.z])
 
+    def publish_particles(self):
+        """Publish particles"""
+        particles = self.localization.particles
+
+        header = Header()
+        header.stamp = self.get_clock().now().to_msg()
+        header.frame_id = "particles"
+        particles_msg = point_cloud2.create_cloud_xyz32(header, particles)
+        self.particles_pub.publish(particles_msg)
 
     def publish_pos(self):
         """Publish the estimated pose"""
