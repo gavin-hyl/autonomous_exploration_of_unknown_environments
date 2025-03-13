@@ -2,7 +2,7 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3
 from sensor_msgs.msg import PointCloud2
-from sensor_msgs_py import point_cloud2
+from sensor_msgs_py import pc2 as pc2
 from multi_slam.Map import MAP
 from std_msgs.msg import Header
 import numpy as np
@@ -72,12 +72,51 @@ class PhysicsSimNode(Node):
         )
         self.sim_done_pub = self.create_publisher(Bool, "/sim_done", 10)
 
-        self.pos_hat_new = np.array([0, 0, 0], dtype=float) # Estimated position by SLAM node
-        self.pos_hat_sub = self.create_subscription(Vector3, "/pos_hat", self.pos_hat_cb, 10)
-        self.pos_hat_new_pub = self.create_publisher(Vector3, "/pos_hat_new", 10)
-
         self.pos_baseline = np.array([0, 0, 0], dtype=float)
         self.pos_baseline_viz_pub = self.create_publisher(Marker, "/pos_baseline_viz", 10)
+
+        self.create_subscription(
+            PointCloud2, "/particles", self.particles_callback, 10
+        )
+
+        self.particles_pred_pub = self.create_publisher(
+            PointCloud2, "/particles_pred", 10
+        )
+
+        self.particles = None
+
+    # ================================
+    # SIMULATION UPDATE LOOP
+    # ================================
+    def sim_update_cb(self):
+        # wait until the SLAM node has published a new position
+        if not self.slam_done:
+            return
+
+        intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
+        self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
+
+        self.pos_baseline += self.vel_ideal * self.sim_dt
+        self.pub_pos_true_viz()
+        self.pub_pos_baseline_viz()
+
+
+        if self.particles is not None:
+            particles_pred = self.particles + self.vel_ideal * self.sim_dt
+            header = Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
+            msg = pc2.create_cloud_xyz32(header, particles_pred)
+            self.particles_pred_pub.publish(msg)
+        
+        self.sim_done_pub.publish(Bool(data=True))
+        self.slam_done = False
+    # ================================
+    # END SIMULATION UPDATE LOOP
+    # ================================
+
+
+    def particles_callback(self, msg: PointCloud2):
+        points = list(pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True))
+        self.particles = np.array([np.array([p[0], p[1], p[2]]) for p in points])
 
 
     def slam_done_cb(self, _: Bool):
@@ -193,10 +232,8 @@ class PhysicsSimNode(Node):
         # Apply additional sensor noise to the points
         noisy_points = self._apply_2d_noise(points, self.lidar_std_dev)
         
-        header = Header()
-        header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = "map"
-        lidar_msg = point_cloud2.create_cloud_xyz32(header, noisy_points)
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
+        lidar_msg = pc2.create_cloud_xyz32(header, noisy_points)
         self.lidar_pub.publish(lidar_msg)
 
         lidar_points_world = []
@@ -210,7 +247,7 @@ class PhysicsSimNode(Node):
                     ]
                 )
             )
-        lidar_points_world_msg = point_cloud2.create_cloud_xyz32(
+        lidar_points_world_msg = pc2.create_cloud_xyz32(
             header, lidar_points_world
         )
         self.lidar_viz_pub.publish(lidar_points_world_msg)
@@ -221,10 +258,8 @@ class PhysicsSimNode(Node):
         # Apply sensor noise
         noisy_points = self._apply_2d_noise(points, self.beacon_std_dev)
         
-        header = Header()
-        header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = "map"
-        beacon_msg = point_cloud2.create_cloud_xyz32(header, noisy_points)
+        header = Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
+        beacon_msg = pc2.create_cloud_xyz32(header, noisy_points)
         self.beacon_pub.publish(beacon_msg)
 
         beacon_positions_world = []
@@ -238,7 +273,7 @@ class PhysicsSimNode(Node):
                     ]
                 )
             )
-        beacon_positions_world_msg = point_cloud2.create_cloud_xyz32(
+        beacon_positions_world_msg = pc2.create_cloud_xyz32(
             header, beacon_positions_world
         )
         self.beacon_viz_pub.publish(beacon_positions_world_msg)
@@ -246,8 +281,7 @@ class PhysicsSimNode(Node):
     def pub_pos_true_viz(self):
         """Publish the true position marker (actual physical position with noise)"""
         marker = Marker()
-        marker.header.stamp = self.get_clock().now().to_msg()
-        marker.header.frame_id = "map"
+        marker.header = Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
         marker.ns = "true_position"
         marker.id = 1
         marker.type = Marker.SPHERE
@@ -276,27 +310,6 @@ class PhysicsSimNode(Node):
         marker.color.a = 1.0  # Fully opaque
 
         self.pos_true_viz_pub.publish(marker)
-
-    def sim_update_cb(self):
-        # wait until the SLAM node has published a new position
-        if not self.slam_done:
-            return
-        self.pos_hat_new += self.vel_ideal * self.sim_dt
-        msg = Vector3()
-        msg.x = self.pos_hat_new[0]
-        msg.y = self.pos_hat_new[1]
-        msg.z = self.pos_hat_new[2]
-        self.pos_hat_new_pub.publish(msg)
-
-        intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
-        self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
-
-        self.pos_baseline += self.vel_ideal * self.sim_dt
-        self.pub_pos_true_viz()
-        self.pub_pos_baseline_viz()
-
-        self.sim_done_pub.publish(Bool(data=True))
-        self.slam_done = False
 
 
     def pub_pos_baseline_viz(self):

@@ -78,15 +78,15 @@ class SLAMNode(Node):
             Vector3, "/control_signal", self.control_callback, 10
         )
 
-        ### ================================
         self.create_subscription(
             Vector3, "/pos_hat_new", self.pos_hat_new_callback, 10
         )
+
+        
         self.pos_hat_pub = self.create_publisher(Vector3, "/pos_hat", 10)
         self.slam_done_pub = self.create_publisher(Bool, "/slam_done", 10)
         self.sim_done_sub = self.create_subscription(Bool, "/sim_done", self.sim_done_cb, 10)
         self.sim_done = True
-        ### ================================
 
 
         # Publishers
@@ -100,6 +100,7 @@ class SLAMNode(Node):
         self.pos_hat_new = np.array([0.0, 0.0, 0.0])
 
         self.create_timer(1, self.publish_viz)
+
 
 
     def sim_done_cb(self, msg: Bool):
@@ -131,7 +132,11 @@ class SLAMNode(Node):
 
         self.slam_done_pub.publish(Bool(data=True))
 
-    
+    def particles_callback(self, msg: PointCloud2):
+        """Process particles"""
+        points = list(read_points(msg, field_names=("x", "y", "z")))
+        self.particles = np.array([np.array([p[0], p[1], p[2]]) for p in points])
+
     def publish_viz(self):
         self.publish_pos_viz()
         self.publish_map_viz()
