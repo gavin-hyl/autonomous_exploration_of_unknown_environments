@@ -11,7 +11,6 @@ import math
 from shapely.geometry import LineString, Point, Polygon
 from std_msgs.msg import Float32, Bool
 
-
 class PhysicsSimNode(Node):
     def __init__(self):
         super().__init__("physics_sim")
