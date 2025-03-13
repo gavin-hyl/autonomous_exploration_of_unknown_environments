@@ -22,7 +22,7 @@ class Mapping:
         # Constants
         self.L_FREE = -0.1
         self.L_OCC = 0.3
-        self.BEACON_DIST_THRESH = 0.5
+        self.BEACON_DIST_THRESH = 2
 
     def update(self,
                robot_pos: np.ndarray,
@@ -44,6 +44,7 @@ class Mapping:
             return
             
         if lidar_data:
+            # discount points after beam breaks
             lidar_array = np.array(lidar_data)
             
             distances = np.linalg.norm(lidar_array[:, :2], axis=1)
@@ -68,25 +69,19 @@ class Mapping:
         
         # Process beacon data
         if beacon_data:
-            for beacon in beacon_data:
-                # Convert beacon from robot frame to world frame
-                beacon_world = robot_pos + beacon
-                
-                # Scale covariance by distance - higher uncertainty at greater distances
-                distance = np.linalg.norm(beacon)
-                scaled_cov = robot_cov * (1.0 + 0.1 * distance)
-                
-                # Find closest beacon in map, or add a new one
-                closest_beacon = self.get_closest_beacon(beacon_world)
+            for measurement in beacon_data:
+                measurement_world = robot_pos + measurement
+                closest_beacon, closest_cov, closest_idx = self.get_closest_beacon(measurement_world)
                 if closest_beacon is not None:
-                    # Update existing beacon
-                    # Here you'd update position using Kalman filter or similar
-                    pass
+                    new_cov = np.linalg.pinv(np.linalg.pinv(closest_cov) + np.linalg.pinv(robot_cov))
+                    new_pos = new_cov @ (np.linalg.pinv(closest_cov) @ closest_beacon + np.linalg.pinv(robot_cov) @ measurement_world)
+                    self.beacon_positions[closest_idx] = new_pos
+                    self.beacon_covariances[closest_idx] = new_cov
                 else:
                     # Add new beacon to the list
-                    self.beacon_positions.append(beacon_world)
-                    self.beacon_covariances.append(scaled_cov)
-        
+                    self.beacon_positions.append(measurement_world)
+                    self.beacon_covariances.append(robot_cov)
+
         # Apply log-odds bounds to prevent saturation
         self.log_odds_grid = np.clip(self.log_odds_grid, -10.0, 10.0)
 

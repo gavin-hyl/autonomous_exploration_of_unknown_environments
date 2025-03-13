@@ -11,7 +11,9 @@ import numpy as np
 from sensor_msgs_py.point_cloud2 import read_points
 import math
 import time
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, Bool
+
+
 class SLAMNode(Node):
     def __init__(self):
         super().__init__("slam_node")
@@ -24,8 +26,6 @@ class SLAMNode(Node):
         self.declare_parameter('grid_size', 0.1)
         self.declare_parameter('num_particles', 1000)
         self.declare_parameter('position_std_dev', 0.1)
-        self.declare_parameter('use_proposed_control', True)  # Flag to switch between control methods
-        self.declare_parameter('debug_visualization', True)   # Flag to enable debug visualization
         
         # Get parameters
         map_size_x = self.get_parameter('map_size_x').value
@@ -35,8 +35,6 @@ class SLAMNode(Node):
         grid_size = self.get_parameter('grid_size').value
         num_particles = self.get_parameter('num_particles').value
         position_std_dev = self.get_parameter('position_std_dev').value
-        self.use_proposed_control = self.get_parameter('use_proposed_control').value
-        self.debug_visualization = self.get_parameter('debug_visualization').value
         
         # Initialize Map and Localization
         self.map = Mapping(
@@ -51,7 +49,7 @@ class SLAMNode(Node):
         self.position_cov = np.eye(3) * 0.1  # Initial covariance
         
         # Update rate
-        self.dt = 0.1
+        self.dt = 0.02
         
         # Initialize Localization
         self.localization = Localization(
@@ -85,6 +83,9 @@ class SLAMNode(Node):
             Vector3, "/pos_hat_new", self.pos_hat_new_callback, 10
         )
         self.pos_hat_pub = self.create_publisher(Vector3, "/pos_hat", 10)
+        self.slam_done_pub = self.create_publisher(Bool, "/slam_done", 10)
+        self.sim_done_sub = self.create_subscription(Bool, "/sim_done", self.sim_done_cb, 10)
+        self.sim_done = True
         ### ================================
 
 
@@ -96,13 +97,42 @@ class SLAMNode(Node):
         self.cmd_vel_pub = self.create_publisher(Vector3, "/control_signal", 10)
         
         # Timer for SLAM main loop
-        self.create_timer(self.dt, self.slam_loop)
-
-        self.map_pub_timer = self.create_timer(1.0, self.publish_map)
-        self.pos_pub_timer = self.create_timer(1.0, self.publish_pos)
-
         self.pos_hat_new = np.array([0.0, 0.0, 0.0])
 
+
+    def sim_done_cb(self, msg: Bool):
+        self.get_logger().info("Slam loop updating")
+        # Localization
+        updated_position, updated_cov = self.localization.update_position(
+            self.pos_hat_new,
+            self.beacon_data,
+            self.map
+        )
+        
+        updated_position[2] = 0.0
+        self.position = self.pos_hat_new
+        # self.position = updated_position
+        self.position_cov = updated_cov
+        
+        pos_hat_msg = Vector3()
+        pos_hat_msg.x = self.position[0]
+        pos_hat_msg.y = self.position[1]
+        pos_hat_msg.z = self.position[2]
+        self.pos_hat_pub.publish(pos_hat_msg)
+        
+        self.map.update(
+            robot_pos=self.position,
+            robot_cov=self.position_cov,
+            lidar_data=self.lidar_data,
+            lidar_range=self.lidar_range,
+            beacon_data=self.beacon_data
+        )
+
+        self.publish_pos()
+        self.publish_map()
+        self.publish_beacons()
+
+        self.slam_done_pub.publish(Bool(data=True))
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data"""
@@ -121,35 +151,6 @@ class SLAMNode(Node):
     def pos_hat_new_callback(self, msg: Vector3):
         """Process updated position"""
         self.pos_hat_new = np.array([msg.x, msg.y, msg.z])
-
-    def slam_loop(self):
-        """Main SLAM loop"""
-        # Localization
-        updated_position, updated_cov = self.localization.update_position(
-            self.pos_hat_new,
-            self.beacon_data,
-            self.map
-        )
-        
-        updated_position[2] = 0.0
-        # self.position = self.pos_hat_new
-        self.position = updated_position
-        self.position_cov = updated_cov
-        
-        pos_hat_msg = Vector3()
-        pos_hat_msg.x = self.position[0]
-        pos_hat_msg.y = self.position[1]
-        pos_hat_msg.z = self.position[2]
-        self.pos_hat_pub.publish(pos_hat_msg)
-        
-        self.map.update(
-            robot_pos=self.position,
-            robot_cov=self.position_cov,
-            lidar_data=self.lidar_data,
-            lidar_range=self.lidar_range,
-            beacon_data=self.beacon_data
-        )
-        
 
 
     def publish_pos(self):

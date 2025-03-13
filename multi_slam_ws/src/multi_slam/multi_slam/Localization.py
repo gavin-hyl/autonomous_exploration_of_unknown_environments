@@ -13,6 +13,11 @@ class Localization:
     def update_position(self, pos_hat_new, beacon_data, estimated_map):
         # self.current_location = pos_hat_new
         # return self.current_location, self.covariance_matrix
+        import sys
+
+        # Math error?
+        # Graph everything
+        # Redo particle filter
 
         # Vectorized particle generation
         noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
@@ -31,8 +36,8 @@ class Localization:
         
         # Update current location and covariance
         self.current_location = np.mean(particles, axis=0)
-        self.covariance_matrix = np.cov(particles, rowvar=False)
-        
+        self.covariance_matrix = np.cov(particles.T)
+
         return self.current_location, self.covariance_matrix
 
     def calculate_score(self, particle, beacon_data, estimated_map):

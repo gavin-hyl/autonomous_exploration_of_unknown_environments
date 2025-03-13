@@ -9,7 +9,7 @@ import numpy as np
 from visualization_msgs.msg import Marker
 import math
 from shapely.geometry import LineString, Point, Polygon
-from std_msgs.msg import Float32
+from std_msgs.msg import Float32, Bool
 
 
 class PhysicsSimNode(Node):
@@ -32,12 +32,10 @@ class PhysicsSimNode(Node):
         self.declare_parameter("lidar_std_dev", 0)
         self.lidar_std_dev = self.get_parameter("lidar_std_dev").value
 
-        # Beacon parameters
         self.declare_parameter("beacon_std_dev", 0)
         self.beacon_std_dev = self.get_parameter("beacon_std_dev").value
 
-        # Velocity parameters
-        self.declare_parameter("vel_std_dev", 0.5)  # New parameter for velocity noise
+        self.declare_parameter("vel_std_dev", 0)
         self.vel_std_dev = self.get_parameter("vel_std_dev").value
 
         self.declare_parameter("collision_buffer", 0.1)  # Buffer distance from obstacles
@@ -46,7 +44,7 @@ class PhysicsSimNode(Node):
         self.declare_parameter("collision_increment", 0.02)  # Smaller increment
         self.collision_increment = self.get_parameter("collision_increment").value
 
-        self.declare_parameter("sim_dt", 0.5)
+        self.declare_parameter("sim_dt", 0.1)
         self.sim_dt = self.get_parameter("sim_dt").value
 
         self.lidar_pub = self.create_publisher(PointCloud2, "lidar", 10)
@@ -70,6 +68,12 @@ class PhysicsSimNode(Node):
         self.sim_time = 0.0
         self.sim_time_pub = self.create_publisher(Float32, "/sim_time", 10)
 
+        self.slam_done = True
+        self.slam_done_sub = self.create_subscription(
+            Bool, "/slam_done", self.slam_done_cb, 10
+        )
+        self.sim_done_pub = self.create_publisher(Bool, "/sim_done", 10)
+
         ### ================================
         self.pos_hat_new = np.array([0, 0, 0], dtype=float) # Estimated position by SLAM node
         self.pos_hat_sub = self.create_subscription(Vector3, "/pos_hat", self.pos_hat_cb, 10)
@@ -78,6 +82,9 @@ class PhysicsSimNode(Node):
         self.pos_baseline = np.array([0, 0, 0], dtype=float)
         self.pos_baseline_viz_pub = self.create_publisher(Marker, "/pos_baseline_viz", 10)
         ### ================================
+
+    def slam_done_cb(self, msg: Bool):
+        self.slam_done = msg.data
 
     def pos_hat_cb(self, msg: Vector3):
         self.pos_hat_new = np.array([msg.x, msg.y, msg.z])
@@ -307,6 +314,10 @@ class PhysicsSimNode(Node):
         self.pos_true_viz_pub.publish(marker)
 
     def sim_update_cb(self):
+        # wait until the SLAM node has published a new position
+        if not self.slam_done:
+            return
+        self.get_logger().info("Sim loop updating")
         self.pos_hat_new += self.vel_ideal * self.sim_dt
         msg = Vector3()
         msg.x = self.pos_hat_new[0]
@@ -320,6 +331,10 @@ class PhysicsSimNode(Node):
         self.pos_baseline += self.vel_ideal * self.sim_dt
         self.pub_pos_true_viz()
         self.pub_pos_baseline_viz()
+
+        self.sim_done_pub.publish(Bool(data=True))
+        self.slam_done = False
+
 
     def pub_pos_baseline_viz(self):
         marker = Marker()
