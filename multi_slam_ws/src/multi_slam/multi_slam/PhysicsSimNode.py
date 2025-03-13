@@ -19,7 +19,6 @@ class PhysicsSimNode(Node):
             Vector3, "control_signal", self.control_signal_cb, 10
         )
 
-        # Lidar parameters
         self.declare_parameter("lidar_r_max", 10.0)
         self.lidar_r_max = self.get_parameter("lidar_r_max").value
 
@@ -38,10 +37,10 @@ class PhysicsSimNode(Node):
         self.declare_parameter("vel_std_dev", 0)
         self.vel_std_dev = self.get_parameter("vel_std_dev").value
 
-        self.declare_parameter("collision_buffer", 0.1)  # Buffer distance from obstacles
+        self.declare_parameter("collision_buffer", 0.1)
         self.collision_buffer = self.get_parameter("collision_buffer").value
         
-        self.declare_parameter("collision_increment", 0.02)  # Smaller increment
+        self.declare_parameter("collision_increment", 0.02)
         self.collision_increment = self.get_parameter("collision_increment").value
 
         self.declare_parameter("sim_dt", 0.1)
@@ -50,23 +49,23 @@ class PhysicsSimNode(Node):
         self.lidar_pub = self.create_publisher(PointCloud2, "lidar", 10)
         self.beacon_pub = self.create_publisher(PointCloud2, "beacon", 10)
 
-        self.pos_true_viz_pub = self.create_publisher(Marker, "visualization_marker_true", 10)
-        self.beacon_viz_pub = self.create_publisher(PointCloud2, "beacon_viz", 10)
-        self.lidar_viz_pub = self.create_publisher(PointCloud2, "lidar_viz", 10)
+        self.pos_true_viz_pub = self.create_publisher(
+            Marker, "visualization_marker_true", 10
+        )
+        self.beacon_viz_pub = self.create_publisher(
+            PointCloud2, "beacon_viz", 10
+        )
+        self.lidar_viz_pub = self.create_publisher(
+            PointCloud2, "lidar_viz", 10
+        )
 
         self.lidar_pub_timer = self.create_timer(0.1, self.lidar_publish_cb)
         self.beacon_pub_timer = self.create_timer(0.1, self.beacon_publish_cb)
         self.sim_update_timer = self.create_timer(self.sim_dt, self.sim_update_cb)
 
-        self.pos_true = np.array([0, 0, 0], dtype=float)   # True physical position with velocity noise
-        self.vel_true = np.array([0, 0, 0], dtype=float)   # Velocity with noise (slippage)
-        self.vel_ideal = np.array([0, 0, 0], dtype=float)  # Commanded velocity
-        self.pos_est = np.array([0, 0, 0], dtype=float)
-        self.accel = np.array([0, 0, 0], dtype=float)
-        self.control_signal_received = False  # Flag to track if control signal was received
-
-        self.sim_time = 0.0
-        self.sim_time_pub = self.create_publisher(Float32, "/sim_time", 10)
+        self.pos_true = np.array([0, 0, 0], dtype=float)
+        self.vel_true = np.array([0, 0, 0], dtype=float)
+        self.vel_ideal = np.array([0, 0, 0], dtype=float)
 
         self.slam_done = True
         self.slam_done_sub = self.create_subscription(
@@ -74,26 +73,25 @@ class PhysicsSimNode(Node):
         )
         self.sim_done_pub = self.create_publisher(Bool, "/sim_done", 10)
 
-        ### ================================
         self.pos_hat_new = np.array([0, 0, 0], dtype=float) # Estimated position by SLAM node
         self.pos_hat_sub = self.create_subscription(Vector3, "/pos_hat", self.pos_hat_cb, 10)
         self.pos_hat_new_pub = self.create_publisher(Vector3, "/pos_hat_new", 10)
 
         self.pos_baseline = np.array([0, 0, 0], dtype=float)
         self.pos_baseline_viz_pub = self.create_publisher(Marker, "/pos_baseline_viz", 10)
-        ### ================================
 
-    def slam_done_cb(self, msg: Bool):
-        self.slam_done = msg.data
+
+    def slam_done_cb(self, _: Bool):
+        self.slam_done = True
+
 
     def pos_hat_cb(self, msg: Vector3):
         self.pos_hat_new = np.array([msg.x, msg.y, msg.z])
 
+
     def control_signal_cb(self, msg: Vector3):
         self.vel_ideal = np.array([msg.x, msg.y, 0.0])
-        noise = np.random.normal(0, self.vel_std_dev, 3)
-        noise[2] = 0.0  # Keep z component at 0
-        self.vel_true = self.vel_ideal + noise
+        self.vel_true = self._apply_2d_noise([self.vel_ideal], self.vel_std_dev)[0]
         
 
     def _apply_2d_noise(self, points: np.array, std_dev: float):
@@ -109,32 +107,11 @@ class PhysicsSimNode(Node):
             noisy_points.append(noisy_point)
         return noisy_points
 
-    def _apply_3d_noise(self, points: np.array, std_dev_dist: float, std_dev_theta: float):
-        noisy_points = []
-        for point in points:
-            noisy_point = np.array(
-                [
-                    point[0] + np.random.normal(0, std_dev_dist),
-                    point[1] + np.random.normal(0, std_dev_dist),
-                    point[2] + np.random.normal(0, std_dev_theta),
-                ]
-            )
-            noisy_points.append(noisy_point)
-        return noisy_points
 
     def create_robot_polygon(self, position):
-        """
-        Creates a circular buffer around the robot position point
-        """
-        # Extract position
         x, y, _ = position
-        
-        # Create a circular buffer around the point
-        # Use the collision_buffer parameter as the radius
-        point = Point(x, y)
-        circle = point.buffer(self.collision_buffer)
-        
-        return circle
+        return Point(position[0], position[1]).buffer(self.collision_buffer)
+
 
     def check_collision(self, current_pos, intended_pos):
         """
@@ -144,18 +121,7 @@ class PhysicsSimNode(Node):
         # Create a circular buffer at the intended position
         robot_circle = self.create_robot_polygon(intended_pos)
         
-        # Check if the circle intersects with any obstacles or the boundary
-        obstacles_intersect = False
-        for obstacle in MAP.obstacles:
-            if robot_circle.intersects(obstacle):
-                obstacles_intersect = True
-                break
-                
-        # Check boundary intersection
-        boundary_intersect = robot_circle.intersects(MAP.boundary)
-        
-        # If no collision, return the intended position
-        if not obstacles_intersect and not boundary_intersect:
+        if not MAP.intersections(robot_circle):
             return intended_pos
             
         # Calculate direction from current to intended position
@@ -174,8 +140,7 @@ class PhysicsSimNode(Node):
             
         # Normalize direction vector (for x, y components)
         if distance > 0:
-            direction[0] /= distance
-            direction[1] /= distance
+            direction = direction / distance
         
         # Start from current position and move incrementally
         safe_pos = np.array(current_pos)  # Last known safe position
@@ -317,7 +282,6 @@ class PhysicsSimNode(Node):
         # wait until the SLAM node has published a new position
         if not self.slam_done:
             return
-        self.get_logger().info("Sim loop updating")
         self.pos_hat_new += self.vel_ideal * self.sim_dt
         msg = Vector3()
         msg.x = self.pos_hat_new[0]

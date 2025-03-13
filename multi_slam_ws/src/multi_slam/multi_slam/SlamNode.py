@@ -99,9 +99,10 @@ class SLAMNode(Node):
         # Timer for SLAM main loop
         self.pos_hat_new = np.array([0.0, 0.0, 0.0])
 
+        self.create_timer(1, self.publish_viz)
+
 
     def sim_done_cb(self, msg: Bool):
-        self.get_logger().info("Slam loop updating")
         # Localization
         updated_position, updated_cov = self.localization.update_position(
             self.pos_hat_new,
@@ -128,11 +129,14 @@ class SLAMNode(Node):
             beacon_data=self.beacon_data
         )
 
-        self.publish_pos()
-        self.publish_map()
-        self.publish_beacons()
-
         self.slam_done_pub.publish(Bool(data=True))
+
+    
+    def publish_viz(self):
+        self.publish_pos_viz()
+        self.publish_map_viz()
+        self.publish_beacons_viz()
+
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data"""
@@ -153,7 +157,7 @@ class SLAMNode(Node):
         self.pos_hat_new = np.array([msg.x, msg.y, msg.z])
 
 
-    def publish_pos(self):
+    def publish_pos_viz(self):
         """Publish the estimated pose"""
         marker = Marker()
         marker.header.frame_id = "map"
@@ -181,7 +185,7 @@ class SLAMNode(Node):
         
         self.pose_pub.publish(marker)
 
-    def publish_map(self):
+    def publish_map_viz(self):
         """Publish occupancy grid"""
         # Create occupancy grid message
         msg = OccupancyGrid()
@@ -203,7 +207,7 @@ class SLAMNode(Node):
         self.map_pub.publish(msg)
 
 
-    def publish_beacons(self):
+    def publish_beacons_viz(self):
         """Publish estimated beacon positions"""
         marker_array = MarkerArray()
         
