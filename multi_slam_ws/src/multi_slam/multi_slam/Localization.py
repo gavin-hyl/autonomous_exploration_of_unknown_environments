@@ -42,21 +42,23 @@ class Localization:
         scores /= scores.sum()
 
         # Efficient resampling
-        # particles_idx = np.random.choice(self.num_particles, size=self.num_particles, p=scores, replace=True)
-        # particles = np.array(particles)[particles_idx]
+        particles_idx = np.random.choice(self.num_particles, size=self.num_particles, p=scores, replace=True)
+        particles = np.array(particles)[particles_idx]
 
-        particles = np.array(particles)
-        # lets sample the top 50 percent
-        top_50 = np.argsort(scores)[-int(self.num_particles * 0.5):]
-        particles = particles[top_50, :]  # Add the explicit dimension indexing with ":"
-        # duplicate the top 50 percent
-        particles = np.concatenate([particles, particles])
+        # particles = np.array(particles)
+        # # lets sample the top 50 percent
+        # top_50 = np.argsort(scores)[-int(self.num_particles * 0.5):]
+        # particles = particles[top_50, :]  # Add the explicit dimension indexing with ":"
+        # # duplicate the top 50 percent
+        # particles = np.concatenate([particles, particles])
+
 
         noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
         particles = particles + np.pad(noise, ((0, 0), (0, 1)))
+        self.particles = particles
 
         cov = np.cov(particles.T)
-
+        # particles = np.zeros((self.num_particles, 3))
         # get interquartile range
         print('particles', particles, file=sys.stderr)
         print('max')

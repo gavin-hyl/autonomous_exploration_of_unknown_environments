@@ -27,7 +27,7 @@ class SLAMNode(Node):
         self.declare_parameter('map_origin_y', -50.0)
         self.declare_parameter('grid_size', 0.1)
         self.declare_parameter('num_particles', 1000)
-        self.declare_parameter('position_std_dev', 0.0)
+        self.declare_parameter('position_std_dev', 0.1)
         self.declare_parameter('initial_noise', 0.5)
 
         # Get parameters
