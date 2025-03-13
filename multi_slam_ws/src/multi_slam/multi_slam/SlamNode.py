@@ -105,30 +105,30 @@ class SLAMNode(Node):
 
     def sim_done_cb(self, msg: Bool):
         # Localization
-        updated_position, updated_cov = self.localization.update_position(
-            self.pos_hat_new,
-            self.beacon_data,
-            self.map
-        )
+        # updated_position, updated_cov = self.localization.update_position(
+        #     self.pos_hat_new,
+        #     self.beacon_data,
+        #     self.map
+        # )
         
-        updated_position[2] = 0.0
+        # updated_position[2] = 0.0
         self.position = self.pos_hat_new
         # self.position = updated_position
-        self.position_cov = updated_cov
+        # self.position_cov = updated_cov
         
-        pos_hat_msg = Vector3()
-        pos_hat_msg.x = self.position[0]
-        pos_hat_msg.y = self.position[1]
-        pos_hat_msg.z = self.position[2]
-        self.pos_hat_pub.publish(pos_hat_msg)
+        # pos_hat_msg = Vector3()
+        # pos_hat_msg.x = self.position[0]
+        # pos_hat_msg.y = self.position[1]
+        # pos_hat_msg.z = self.position[2]
+        # self.pos_hat_pub.publish(pos_hat_msg)
         
-        self.map.update(
-            robot_pos=self.position,
-            robot_cov=self.position_cov,
-            lidar_data=self.lidar_data,
-            lidar_range=self.lidar_range,
-            beacon_data=self.beacon_data
-        )
+        # self.map.update(
+        #     robot_pos=self.position,
+        #     robot_cov=self.position_cov,
+        #     lidar_data=self.lidar_data,
+        #     lidar_range=self.lidar_range,
+        #     beacon_data=self.beacon_data
+        # )
 
         self.slam_done_pub.publish(Bool(data=True))
 

@@ -2,14 +2,14 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3
 from sensor_msgs.msg import PointCloud2
-from sensor_msgs_py import pc2 as pc2
+from sensor_msgs_py import point_cloud2 as pc2
 from multi_slam.Map import MAP
 from std_msgs.msg import Header
 import numpy as np
 from visualization_msgs.msg import Marker
 import math
-from shapely.geometry import LineString, Point, Polygon
-from std_msgs.msg import Float32, Bool
+from shapely.geometry import Point
+from std_msgs.msg import Bool
 
 class PhysicsSimNode(Node):
     def __init__(self):
