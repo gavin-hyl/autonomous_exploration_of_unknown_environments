@@ -89,11 +89,12 @@ class SLAMNode(Node):
         self.create_subscription(
             Vector3, "/pos_hat_new", self.pos_hat_new_callback, 10
         )
+
+        
         self.pos_hat_pub = self.create_publisher(Vector3, "/pos_hat", 10)
         self.slam_done_pub = self.create_publisher(Bool, "/slam_done", 10)
         self.sim_done_sub = self.create_subscription(Bool, "/sim_done", self.sim_done_cb, 10)
         self.sim_done = True
-        ### ================================
 
 
         # Publishers
@@ -106,9 +107,11 @@ class SLAMNode(Node):
         # Timer for SLAM main loop
         self.pos_hat_new = np.array([0.0, 0.0, 0.0])
 
+        self.create_timer(1, self.publish_viz)
+
+
 
     def sim_done_cb(self, msg: Bool):
-        self.get_logger().info("Slam loop updating")
         # Localization
         particles, cov = self.localization.update_position(
             self.beacon_data,
@@ -123,11 +126,11 @@ class SLAMNode(Node):
         # self.position = updated_position
         self.position_cov = cov
         
-        pos_hat_msg = Vector3()
-        pos_hat_msg.x = self.position[0]
-        pos_hat_msg.y = self.position[1]
-        pos_hat_msg.z = self.position[2]
-        self.pos_hat_pub.publish(pos_hat_msg)
+        # pos_hat_msg = Vector3()
+        # pos_hat_msg.x = self.position[0]
+        # pos_hat_msg.y = self.position[1]
+        # pos_hat_msg.z = self.position[2]
+        # self.pos_hat_pub.publish(pos_hat_msg)
         
         self.map.update(
             robot_pos=self.position,
@@ -143,6 +146,17 @@ class SLAMNode(Node):
         self.publish_particles()
 
         self.slam_done_pub.publish(Bool(data=True))
+
+    def particles_callback(self, msg: PointCloud2):
+        """Process particles"""
+        points = list(read_points(msg, field_names=("x", "y", "z")))
+        self.particles = np.array([np.array([p[0], p[1], p[2]]) for p in points])
+
+    def publish_viz(self):
+        self.publish_pos_viz()
+        self.publish_map_viz()
+        self.publish_beacons_viz()
+
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data"""
@@ -177,7 +191,7 @@ class SLAMNode(Node):
         particles_msg = point_cloud2.create_cloud_xyz32(header, particles)
         self.particles_pub.publish(particles_msg)
 
-    def publish_pos(self):
+    def publish_pos_viz(self):
         """Publish the estimated pose"""
         marker = Marker()
         marker.header.frame_id = "map"
@@ -205,7 +219,7 @@ class SLAMNode(Node):
         
         self.pose_pub.publish(marker)
 
-    def publish_map(self):
+    def publish_map_viz(self):
         """Publish occupancy grid"""
         # Create occupancy grid message
         msg = OccupancyGrid()
@@ -227,7 +241,7 @@ class SLAMNode(Node):
         self.map_pub.publish(msg)
 
 
-    def publish_beacons(self):
+    def publish_beacons_viz(self):
         """Publish estimated beacon positions"""
         marker_array = MarkerArray()
         
