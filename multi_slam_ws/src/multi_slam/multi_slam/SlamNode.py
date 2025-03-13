@@ -9,6 +9,7 @@ from multi_slam.Localization import Localization
 from multi_slam.Mapping import Mapping
 import numpy as np
 from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Header
 from sensor_msgs_py.point_cloud2 import read_points
 import math
 import time
@@ -26,8 +27,9 @@ class SLAMNode(Node):
         self.declare_parameter('map_origin_y', -50.0)
         self.declare_parameter('grid_size', 0.1)
         self.declare_parameter('num_particles', 1000)
-        self.declare_parameter('position_std_dev', 0.1)
-        
+        self.declare_parameter('position_std_dev', 0.0)
+        self.declare_parameter('initial_noise', 0.5)
+
         # Get parameters
         map_size_x = self.get_parameter('map_size_x').value
         map_size_y = self.get_parameter('map_size_y').value
@@ -36,7 +38,8 @@ class SLAMNode(Node):
         grid_size = self.get_parameter('grid_size').value
         num_particles = self.get_parameter('num_particles').value
         position_std_dev = self.get_parameter('position_std_dev').value
-        
+        initial_noise = self.get_parameter('initial_noise').value
+    
         # Initialize Map and Localization
         self.map = Mapping(
             map_size=(map_size_x, map_size_y),
@@ -55,6 +58,7 @@ class SLAMNode(Node):
         # Initialize Localization
         self.localization = Localization(
             initial_location=initial_position, 
+            initial_noise=initial_noise,
             std_dev_noise=position_std_dev,
             num_particles=num_particles,
             dt=self.dt
@@ -119,6 +123,7 @@ class SLAMNode(Node):
         )
 
         pos_hat_new = np.average(particles, axis=0)
+        pos_hat_new = pos_hat_new.astype(float)
         pos_hat_new[2] = 0.0
 
         self.pos_hat_new = pos_hat_new
@@ -140,11 +145,6 @@ class SLAMNode(Node):
             beacon_data=self.beacon_data
         )
 
-        self.publish_pos()
-        self.publish_map()
-        self.publish_beacons()
-        self.publish_particles()
-
         self.slam_done_pub.publish(Bool(data=True))
 
     def particles_callback(self, msg: PointCloud2):
@@ -156,7 +156,7 @@ class SLAMNode(Node):
         self.publish_pos_viz()
         self.publish_map_viz()
         self.publish_beacons_viz()
-
+        self.publish_particles()
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data"""
@@ -187,7 +187,7 @@ class SLAMNode(Node):
 
         header = Header()
         header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = "particles"
+        header.frame_id = "map"
         particles_msg = point_cloud2.create_cloud_xyz32(header, particles)
         self.particles_pub.publish(particles_msg)
 
@@ -202,6 +202,9 @@ class SLAMNode(Node):
         marker.action = Marker.ADD
 
         # Position
+        # import sys
+        # print('position', self.position, file=sys.stderr)
+        
         marker.pose.position.x = self.position[0]
         marker.pose.position.y = self.position[1]
         marker.pose.position.z = 0.0
