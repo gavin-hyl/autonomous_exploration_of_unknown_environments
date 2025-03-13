@@ -89,6 +89,7 @@ class SLAMNode(Node):
         )
         self.particles_pub = self.create_publisher(PointCloud2, "particles", 10)
 
+
         ### ================================
         self.create_subscription(
             Vector3, "/pos_hat_new", self.pos_hat_new_callback, 10
@@ -128,14 +129,7 @@ class SLAMNode(Node):
 
         self.pos_hat_new = pos_hat_new
         self.position = self.pos_hat_new
-        # self.position = updated_position
         self.position_cov = cov
-        
-        # pos_hat_msg = Vector3()
-        # pos_hat_msg.x = self.position[0]
-        # pos_hat_msg.y = self.position[1]
-        # pos_hat_msg.z = self.position[2]
-        # self.pos_hat_pub.publish(pos_hat_msg)
         
         self.map.update(
             robot_pos=self.position,
@@ -144,19 +138,21 @@ class SLAMNode(Node):
             lidar_range=self.lidar_range,
             beacon_data=self.beacon_data
         )
-
+        self.publish_particles()
         self.slam_done_pub.publish(Bool(data=True))
+
 
     def particles_callback(self, msg: PointCloud2):
         """Process particles"""
         points = list(read_points(msg, field_names=("x", "y", "z")))
         self.particles = np.array([np.array([p[0], p[1], p[2]]) for p in points])
 
+
     def publish_viz(self):
         self.publish_pos_viz()
         self.publish_map_viz()
         self.publish_beacons_viz()
-        self.publish_particles()
+
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data"""

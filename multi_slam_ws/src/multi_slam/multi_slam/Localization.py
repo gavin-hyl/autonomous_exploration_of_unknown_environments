@@ -52,16 +52,11 @@ class Localization:
         # # duplicate the top 50 percent
         # particles = np.concatenate([particles, particles])
 
-
         noise = np.random.normal(0, self.std_dev_noise, (self.num_particles, 2))
         particles = particles + np.pad(noise, ((0, 0), (0, 1)))
         self.particles = particles
 
         cov = np.cov(particles.T)
-        # particles = np.zeros((self.num_particles, 3))
-        # get interquartile range
-        print('particles', particles, file=sys.stderr)
-        print('max')
 
         return particles, cov
 
