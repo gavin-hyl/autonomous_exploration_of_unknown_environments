@@ -4,8 +4,16 @@ from geometry_msgs.msg import Vector3, PoseStamped
 import numpy as np
 import threading
 
+
 class ControllerNode(Node):
+    """
+    Robot controller node that provides teleoperation and autonomous navigation capabilities.
+    
+    Subscribes to the estimated pose from SLAM and publishes control commands.
+    """
+    
     def __init__(self):
+        """Initialize the controller node with publishers, subscribers, and parameters."""
         super().__init__("controller_node")
         
         # Publishers
@@ -34,11 +42,11 @@ class ControllerNode(Node):
         # Teleop setup
         if self.teleop_enabled:
             self.key_mapping = {
-                'w': np.array([1.0, 0.0, 0.0]),  # Forward
-                's': np.array([-1.0, 0.0, 0.0]), # Backward
-                'a': np.array([0.0, 1.0, 0.0]),  # Left
-                'd': np.array([0.0, -1.0, 0.0]), # Right
-                'x': np.array([0.0, 0.0, 0.0]),  # Stop
+                'w': np.array([1.0, 0.0, 0.0]),   # Forward
+                's': np.array([-1.0, 0.0, 0.0]),  # Backward
+                'a': np.array([0.0, 1.0, 0.0]),   # Left
+                'd': np.array([0.0, -1.0, 0.0]),  # Right
+                'x': np.array([0.0, 0.0, 0.0]),   # Stop
             }
             self.control_input = np.array([0.0, 0.0, 0.0])
             self.teleop_thread = threading.Thread(target=self.teleop_input_loop)
@@ -46,7 +54,7 @@ class ControllerNode(Node):
             self.teleop_thread.start()
 
     def pose_callback(self, msg: PoseStamped):
-        """Store the latest estimated pose from SLAM Node"""
+        """Store the latest estimated pose from SLAM Node."""
         self.current_pose = np.array([
             msg.pose.position.x,
             msg.pose.position.y,
@@ -54,7 +62,7 @@ class ControllerNode(Node):
         ])
 
     def control_loop(self):
-        """Calculate control commands (autonomous or teleop)"""
+        """Calculate control commands (autonomous or teleop)."""
         if not self.teleop_enabled:
             # Autonomous navigation to target (simple proportional control)
             error = self.target - self.current_pose
@@ -65,7 +73,7 @@ class ControllerNode(Node):
         self.publish_control()
 
     def teleop_input_loop(self):
-        """Read keyboard input for teleoperation"""
+        """Read keyboard input for teleoperation."""
         while True:
             key = input("Enter WASD command (x to stop): ").lower()
             if key in self.key_mapping:
@@ -74,19 +82,22 @@ class ControllerNode(Node):
                 self.get_logger().warn(f"Invalid key: {key}")
 
     def publish_control(self):
-        """Publish velocity command"""
+        """Publish velocity command."""
         msg = Vector3()
         msg.x = float(self.control_input[0])
         msg.y = float(self.control_input[1])
         msg.z = 0.0
         self.control_pub.publish(msg)
 
+
 def main(args=None):
+    """Entry point for the controller node."""
     rclpy.init(args=args)
     node = ControllerNode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == "__main__":
     main()
