@@ -27,15 +27,3 @@ Please keep this updated as we code!
     - `Vector3`, with `z = 0`
     - Represents the position if the control signal was perfectly executed
 
-### Nodes
-Nodes may publish other topics to RVIZ for visualization purposes. The topics listed here relate to core functionality.
-- `ControllerNode`
-    - Description:
-    - Publish: `/control_signal`
-    - Subscribe: `/lidar_point_cloud`, `/beacon_pos`, `/pos_hat`
-    - Maintained by: TK
-- `PhysicsSimNode`
-    - Description:
-    - Publish: `/lidar_point_cloud`, `/beacon_pos`, `/pos_hat`
-    - Subscribe: `/control_signal`
-    - Maintained by: Gavin, Gio

@@ -27,13 +27,13 @@ class PhysicsSimNode(Node):
         self.declare_parameter("lidar_delta_theta", 3)
         self.lidar_delta_theta = self.get_parameter("lidar_delta_theta").value
 
-        self.declare_parameter("lidar_std_dev", 0)
+        self.declare_parameter("lidar_std_dev", 0.1)
         self.lidar_std_dev = self.get_parameter("lidar_std_dev").value
 
-        self.declare_parameter("beacon_std_dev", 0)
+        self.declare_parameter("beacon_std_dev", 0.1)
         self.beacon_std_dev = self.get_parameter("beacon_std_dev").value
 
-        self.declare_parameter("vel_std_dev", 0)
+        self.declare_parameter("vel_std_dev", 0.4)
         self.vel_std_dev = self.get_parameter("vel_std_dev").value
 
         self.declare_parameter("collision_buffer", 0.1)

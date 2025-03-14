@@ -41,13 +41,6 @@ class KeyboardTeleop(Node):
             'd': np.array([1.0, 0.0, 0.0]),   # Right (positive X)
             'x': np.array([0.0, 0.0, 0.0]),   # Stop
         }
-
-        # original key mapping 
-        # 'w': np.array([1.0, 0.0, 0.0]),   # Forward
-        # 's': np.array([-1.0, 0.0, 0.0]),  # Backward
-        # 'a': np.array([0.0, 1.0, 0.0]),   # Left
-        # 'd': np.array([0.0, -1.0, 0.0]),  # Right
-
         
         # Parameter settings
         self.declare_parameter('max_speed', 1.0)

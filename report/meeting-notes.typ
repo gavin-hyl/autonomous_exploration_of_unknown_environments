@@ -44,3 +44,13 @@ Our project proposes a multi-robot system designed for emergency rescue in a bui
 Combine LIDAR, IMU, Beacon, and physics simulation nodes. (One simulation, one robot node)
 We can use RVIZ
 Set up occupancy grid and learn to populate it with the LIDAR.
+
+
+==
+$3n times 3n$ covariance matrix?
+Why not just the Kalman filter?
+Limitations of the algorithm? (stress test: range of the beacon, how far apart, max noise, etc.)
+
+- no multi-robot
+- autonomous exploration utilizing the map
+- loop closure
