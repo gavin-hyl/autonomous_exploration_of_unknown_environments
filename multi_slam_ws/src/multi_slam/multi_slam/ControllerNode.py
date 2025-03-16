@@ -2,12 +2,11 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import Vector3, PoseStamped
 import numpy as np
-import threading
 
 
 class ControllerNode(Node):
     """
-    Robot controller node that provides teleoperation and autonomous navigation capabilities.
+    Robot controller node that makes the robot move constantly upward.
     
     Subscribes to the estimated pose from SLAM and publishes control commands.
     """
@@ -32,57 +31,36 @@ class ControllerNode(Node):
         control_freq = self.get_parameter("control_frequency").value
         self.control_timer = self.create_timer(1.0 / control_freq, self.control_loop)
         
-        self.declare_parameter("teleop_enabled", True)
-        self.teleop_enabled = self.get_parameter("teleop_enabled").value
-        
         # State
         self.current_pose = np.array([0.0, 0.0, 0.0])  # [x, y, theta]
-        self.target = np.array([8.0, 8.0, 0.0])  # Example target
         
-        # Teleop setup
-        if self.teleop_enabled:
-            self.key_mapping = {
-                'w': np.array([1.0, 0.0, 0.0]),   # Forward
-                's': np.array([-1.0, 0.0, 0.0]),  # Backward
-                'a': np.array([0.0, 1.0, 0.0]),   # Left
-                'd': np.array([0.0, -1.0, 0.0]),  # Right
-                'x': np.array([0.0, 0.0, 0.0]),   # Stop
-            }
-            self.control_input = np.array([0.0, 0.0, 0.0])
-            self.teleop_thread = threading.Thread(target=self.teleop_input_loop)
-            self.teleop_thread.daemon = True
-            self.teleop_thread.start()
+        # Constant up movement control signal with higher speed
+        self.control_input = np.array([0.0, 0.8 * self.max_speed, 0.0])  # Move upward (positive y) at 80% max speed
+        
+        # Counters for logging
+        self.count_pose_callbacks = 0
+        self.publish_count = 0
+        
+        self.get_logger().info("Controller node initialized with constant upward movement")
+        self.get_logger().info(f"Using control input: [{self.control_input[0]}, {self.control_input[1]}, {self.control_input[2]}]")
+        self.get_logger().info(f"Maximum speed: {self.max_speed}")
+        self.get_logger().info(f"Control frequency: {control_freq} Hz")
 
     def pose_callback(self, msg: PoseStamped):
         """Store the latest estimated pose from SLAM Node."""
         self.current_pose = np.array([
             msg.pose.position.x,
             msg.pose.position.y,
-            0.0  # Ignore orientation for simplicity
+            0.0
         ])
 
     def control_loop(self):
-        """Calculate control commands (autonomous or teleop)."""
-        if not self.teleop_enabled:
-            # Autonomous navigation to target (simple proportional control)
-            error = self.target - self.current_pose
-            control = 0.5 * error[:2]  # Proportional gain
-            control = np.clip(control, -self.max_speed, self.max_speed)
-            self.control_input = np.array([control[0], control[1], 0.0])
-        
+        """Output constant upward control command."""
+        self.get_logger().debug("Publishing control command")
         self.publish_control()
 
-    def teleop_input_loop(self):
-        """Read keyboard input for teleoperation."""
-        while True:
-            key = input("Enter WASD command (x to stop): ").lower()
-            if key in self.key_mapping:
-                self.control_input = self.key_mapping[key]
-            else:
-                self.get_logger().warn(f"Invalid key: {key}")
-
     def publish_control(self):
-        """Publish velocity command."""
+        """Publish velocity command to move upward."""
         msg = Vector3()
         msg.x = float(self.control_input[0])
         msg.y = float(self.control_input[1])
@@ -94,6 +72,7 @@ def main(args=None):
     """Entry point for the controller node."""
     rclpy.init(args=args)
     node = ControllerNode()
+    node.get_logger().info("Controller node started and ready to control robot")
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()

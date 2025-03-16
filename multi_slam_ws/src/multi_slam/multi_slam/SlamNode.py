@@ -27,10 +27,10 @@ class SLAMNode(Node):
         super().__init__("slam_node")
         
         # Parameters
-        self.declare_parameter('map_size_x', 100.0)
-        self.declare_parameter('map_size_y', 100.0)
-        self.declare_parameter('map_origin_x', -50.0)
-        self.declare_parameter('map_origin_y', -50.0)
+        self.declare_parameter('map_size_x', 50.0)
+        self.declare_parameter('map_size_y', 50.0)
+        self.declare_parameter('map_origin_x', -25.0)
+        self.declare_parameter('map_origin_y', -25.0)
         self.declare_parameter('grid_size', 0.1)
         self.declare_parameter('num_particles', 1000)
         self.declare_parameter('position_std_dev', 0.1)
@@ -223,7 +223,7 @@ class SLAMNode(Node):
         msg.info.origin.position.y = self.map.map_origin[1]
         
         # Convert log-odds to probabilities (0-100)
-        probs = 1.0 / (1.0 + np.exp(-self.map.log_odds_grid))
+        probs = self.map.get_prob_grid()
         msg.data = (probs * 100).astype(int).flatten().tolist()
         
         self.map_pub.publish(msg)
