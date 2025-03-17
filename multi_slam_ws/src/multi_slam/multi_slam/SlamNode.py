@@ -2,8 +2,8 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
-from geometry_msgs.msg import PoseStamped, Vector3
-from nav_msgs.msg import OccupancyGrid, MapMetaData
+from geometry_msgs.msg import Vector3
+from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import Marker, MarkerArray
 from multi_slam.Localization import Localization
 from multi_slam.Mapping import Mapping
@@ -11,7 +11,6 @@ import numpy as np
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header, Bool
 from sensor_msgs_py.point_cloud2 import read_points
-import math
 
 
 class SLAMNode(Node):
