@@ -140,19 +140,162 @@ class Planner:
         world_y = grid_y * self.map_resolution + self.grid_origin[1]
         return world_x, world_y
 
+    # TK part 
     def generate_entropy_map(self):  
+        """
+        creates entrophy map from the occupancy grid 
+
+        unknown areas (occ_grod = -1) has highest entrophy (1.0)
+        free areas (occ_grid = 0) has low entrophy (0.2)
+        occupied areas (occ_grid > 50) has no entrophy (0.0)
+
+        """
         
-        pass
+        if self.occupancy_grid is None:
+            return None
+        
+        entropy_map = np.ones_like(self.occupancy_grid, dtype=float)
+        unknown = (self.occupancy_grid == -1) # unknown
+        free = (self.occupancy_grid == 0)     # free
+        occupied = (self.occupancy_grid > 50)  # above 50 is occupied
+
+        entropy_map[unknown] = 1.0 # high entropy
+        entropy_map[free] = 0.2    # low entropy
+        entropy_map[occupied] = 0.0 # no entropy
+
+        # gaussian filter for smoothnes (optional)
+        entropy_map = gaussian_filter(entropy_map, sigma=2)
+
+        return entropy_map
+
 
     def compute_entropy_gradient(self, entropy_map):
+        """
+        gradient of entrophy map using sobel filter
 
-        pass
+        """
 
+        sobel_h = sobel(entropy_map, axis=0) # horizontal gradient
+        sobel_v = sobel(entropy_map, axis=1) # vertical gradient
+
+        gradient_y = sobel_h
+        gradient_x = sobel_v
+
+        return gradient_x, gradient_y
+        
+        
     def detect_exploration_boundary(self, entropy_map):
-        pass
+        """
+        edge detection using sobel filter / gives you boundary map
+        """
+        
+        # get gradients from entropy map
+        gradient_x, gradient_y = self.compute_entropy_gradient(entropy_map)
+        gradient_norm = np.sqrt(gradient_x**2 + gradient_y**2)
+
+        # gradient threshold 
+        thres =  np.max(gradient_norm) * 0.3 ###### adjust threshold
+        boundary_map = (gradient_norm > thres).astype(float)
+
+        # gaussian filter for smoothnes (optional)
+        boundary_map = gaussian_filter(boundary_map, sigma=1)
+
+        return boundary_map
+
 
     def select_goal_point(self):
-        pass
+        """
+        selects next goal point for the robot
+        """
+        # robot pos to grid pos 
+        robot_grid_x, robot_grid_y = self.world_to_grid(self.current_pos[0], self.current_pos[1])
+
+        # check if grid pos is valid
+        if not (0 <= robot_grid_x < self.grid_width and 0 <= robot_grid_y < self.grid_height):
+            return None
+        
+        # find candidate points
+        if self.occupancy_grid is None:
+            return None
+        entrophy_map = self.generate_entropy_map()
+        if entrophy_map is None:
+            return None
+        
+        # boundaries based on entrophy
+        boundary_map = self.detect_exploration_boundary(entrophy_map)
+
+        # mean filter applied to boundary map
+        filtered_boundary = cv2.boxFilter(boundary_map, -1, (15, 15)) # 15 by 15 kernel 
+        # replacing the filtered boundary w max value in 25 by 25 kernel
+        max_filtered = cv2.dilate(filtered_boundary, np.ones((25, 25)))
+        local_maximas = (filtered_boundary == max_filtered) & (filtered_boundary > 0.3)
+
+        goal_pts = []
+        y_idx, x_idx = np.where(local_maximas)
+
+        for i in range(len(y_idx)):
+            x = x_idx[i]
+            y = y_idx[i]
+
+            if self.occupancy_grid[y, x] > 50:
+                continue
+
+            d = math.sqrt((x - robot_grid_x)**2 + (y - robot_grid_y)**2)
+            search_radius = int(5.0 / self.map_resolution)
+
+            if 10 < d < search_radius:
+                gradient_x, gradient_y = self.compute_entropy_gradient(entropy_map)
+                grad_norm = filtered_boundary[y, x]
+
+                d_score = 1.0 - (d / search_radius)
+                grad_score = grad_norm / (np.max(gradient_x)**2 + np.max(gradient_y)**2)**0.5
+
+                score_total = d_score * 0.3 + grad_score * 0.7
+
+                world_x, world_y = self.grid_to_world(x, y)
+                goal_pts.append((world_x, world_y, score_total))
+        
+
+        # beacon positions
+        for beacon in self.beacons:
+            beacon_grid_x, beacon_grid_y = self.world_to_grid(beacon[0], beacon[1])
+
+            if not (0 <= beacon_grid_x < self.grid_width and 0 <= beacon_grid_y < self.grid_height):
+                continue
+            
+            for world_x, world_y, score in goal_pts.copy():
+                d_g_to_b = math.sqrt((world_x - beacon[0])**2 + (world_y - beacon[1])**2)
+
+                if d_g_to_b < self.beacon_attraction_radius:
+                    proximity_factor = 1.0 - (d_g_to_b / self.beacon_attraction_radius)
+
+                    new_score = score + proximity_factor * self.beacon_weight
+
+                    idx = goal_pts.index((world_x, world_y, score))
+                    goal_pts[idx] = (world_x, world_y, new_score)
+
+    # if there are no goal points, select random point
+    if not goal_pts:
+        attempts = 0
+        while attempts < 100:
+            rand_grid_x = random.randint(0, self.grid_width - 1)
+            rand_grid_y = random.randint(0, self.grid_height - 1)
+
+            # unoccupied cells
+            if self.occupancy_grid[rand_grid_y, rand_grid_x] < 50:
+                dist = math.sqrt((rand_grid_x - robot_grid_x)**2 + (rand_grid_y - robot_grid_y)**2)
+                
+                if 10 < dist < search_radius:
+                    world_x, world_y = self.grid_to_world(rand_grid_x, rand_grid_y)
+                    return world_x, world_y
+                
+            attempts += 1
+        
+        return self.current_pos[0], self.current_pos[1]
+    
+    best_goal_pt = max(goal_pts, key=lambda x: x[2])
+    return best_goal_pt[0], best_goal_pt[1]
+                       
 
     def check_collision(self, x, y):
         """
