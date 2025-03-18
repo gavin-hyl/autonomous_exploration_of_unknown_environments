@@ -39,6 +39,9 @@ The primary goal of this project is to enable a UAV (modeled by its state $x = (
 
 This modular design facilitates testing of individual components and allows for straightforward integration of additional sensors or planning strategies.
 
+= Notation
+For multi-dimensional Gaussian distributions, we overload the notation $x~N(p, sigma^2)$ where $p, sigma$ are scalars to denote $x~cal(N)(vec(p, dots.v, p), "diag"(sigma^2, ..., sigma^2))$. Unless denoted otherwise, all positions are in the world frame.
+
 
 = Approach
 
@@ -60,166 +63,63 @@ The entropy-gradient method effectively resolves the exploration problem as it r
 = Implementation
 
 == ROS Node Structure
-- Controller
-- PhysicsSim
-- Slam
-// - *Algorithm Details:*  
-//   The localization module implements a particle filter where particles are initialized around an initial guess with added Gaussian noise. Each particle’s weight is updated based on its consistency with observed beacon positions and LiDAR readings. For numerical stability, the particle weights are normalized using a softmax function:
-  
-//   $ w_t^{[i]} = frac{exp(q^{[i]} - max_j q^{[j]})}{sum_{j=1}^N exp(q^{[j]} - max_k q^{[k]})}$ 
+// FIXME some ROS node graph
+We utilize RVIZ for visualization.
 
-// - *Vectorized Operations:*  
-//   Many operations are vectorized using NumPy to reduce the computational overhead associated with Python loops.
+== Physics Simulation
+We assume the controller has first-order control of the plant. Every time step, given the control input $u$, the physics simulation performs an Euler integration of the form
+$
+  vec(p, dot(p)) = Delta t mat(0, I; 0, 0) vec(p, dot(p)) + vec(0, u + w)
+$
+where $w ~ cal(N)(0, sigma_c^2)$ represents the controller noise.
 
-// - *Trade-Offs:*  
-//   Increasing the number of particles improves accuracy but increases computation. Parameter tuning is essential to balance these factors.
+If a collision were to occur, the line from $p_t$ to $p_(t+1)$ is traced and the robot is placed on the edge of the obstacle.
 
-// === Occupancy Grid Mapping
+Moreover, the physics simulation computes the sensor measurements. The LiDAR sensor is modeled by ray-casting, which returns the distance to the nearest obstacle in the direction of the ray if the obstacle is within $r_max$. The camera sensor is modeled by a Gaussian distribution with mean $p^i$ and covariance $sigma_b^2 I$, where $p^i$ is the position of the $i$th beacon. The camera sensor is able to detec.t beacons if the line of sight is not obstructed.
 
-// - *Mapping Method:*  
-//   The mapping module uses a log-odds framework to update an occupancy grid. LiDAR rays are traced using a Bresenham algorithm to mark free space and obstacles. Beacon measurements help refine the positions of landmarks.
+All geometry functionality is provided by the `Shapely` library
 
-// - *Log-Odds and Occupancy Probability:*  
-//   The log-odds update for each grid cell is:
-  
-//   $ L_t = L_{t-1} + logleft(frac{p(z mid m)}{1 - p(z mid m)}right)$ 
-  
-//   The occupancy probability is then computed as:
-  
-//   $ p(m mid z) = frac{e^{L_t}}{1 + e^{L_t}}$ 
+== Mapping
+We maintain three data structures for mapping: the occupancy grid, the list of beacon positions, and the list of beacon position covariances.
 
-// - *Entropy Calculation:*  
-//   To quantify uncertainty in a cell, entropy is calculated as:
-  
-//   $ H(p) = -p log_2(p) - (1-p) log_2(1-p)$ 
+We perform a log-odds ratio update for the occupancy grid. The occupancy grid is represented by a 2D array of cells, each with a log-odds value theoretically from $(-oo, +oo)$. In practice, however, clipping the values to $[-10, 10]$ improved numerical stability.  The occupancy grid is initialized to $0$ for all cells. The log-odds update is performed as follows:
+- for every ray cast by the LiDAR sensor, we perform Bresenham's line algorithm to find the cells that the ray intersects.
+- for every cell before the ray's endpoint, we add $L_"FREE"$ to the log-odds value.
+- if the ray intersects an obstacle, we add $L_"OCCUPIED"$ to the log-odds value of the cell at the ray's endpoint. Otherwise, we add $L_"FREE"$ to the log-odds value of the cell at the ray's endpoint.
 
-// === RRT-Based Path Planning
+Given a log-odds ratio, the occupancy probability is computed as $p = 1 / (1 + e^(-l))$.
 
-// - *RRT Planner:*  
-//   The planner employs a Rapidly-Exploring Random Tree (RRT) algorithm enhanced with an entropy-based metric. An entropy map is generated from the occupancy grid to highlight unexplored or uncertain areas. The planner then selects goal points that maximize information gain while avoiding obstacles.
+We perform a Kalman update for the beacons. If an observed beacon is not within $r_b$ of a known beacon, then its observed position is added to the list of beacons. Its corresponding covariance is set to the covariance of the point cloud since the camera's covariance is unknown. Otherwise, given known position $p_1$, known covariance $P_1$ and observed position $p_2$, point cloud covariance $P_2$, we perform the Kalman update:
+$
+  P = (P_1^(-1) + P_2^(-1))^(-1) \
+  p = P (P_1^(-1) p_1 + P_2^(-1) p_2)
+$
+This optimally fuses the two measurements.
 
-// - *Steering Function:*  
-//   To steer from a start node ((x_s, y_s)) toward a target node ((x_t, y_t)) by a fixed step size (Delta), the new node is computed as:
-  
-//   $ (x_{text{new}}, y_{text{new}}) = Bigl(x_s + Delta cos(theta),; y_s + Delta sin(theta)Bigr)$ 
-  
-//   where
-  
-//   $ theta = arctanleft(frac{y_t - y_s}{x_t - x_s}right)$ 
+== Localization (Particle Filter)
+The particle filter maintains $N = 1000$ particles to represent the belief of the robot's position. Each particle is represented by its position $p_p^i$, and they are initialized by sampling $cal(N)(0, sigma_p^2)$. 
+At each time step, the particle filter performs the following steps:
+- Integrate all particles forward in time using Euler's method.
+- Add noise $w_p^i ~cal(N)(0, sigma_p^2)$ to each particle.
+- For the set of observed beacons $p_b^o$ for $o in [1, m]$ and the corresponding closest known beacons $p_(b*)^o$ compute the score $s_i$ as
+$
+  s_i = sum_(o=1)^m 1/(||p_(b*)^o - p_b^o||)
+$
+If any observation does not have a corresponding beacon within $r_b$, then $s^i = -oo$.
+- Resample the particles according to the $P_i = e^(s_i) / (sum_i e^(s_i))$ (the softmax distribution) with replacement.
 
-// === PD Controller Integration
+== Entropy-Based Goal selection
 
-// - *Control Law:*  
-//   A proportional–derivative (PD) controller computes the control input for path following:
-  
-//   $ u(t) = K_p , e(t) + K_d , frac{de(t)}{dt}$ 
-  
-//   where (e(t)) is the error between the robot’s current position and the target waypoint.
+The information entropy map is computed as $H_i = - P_i ln(P_i)$, where $P_i$ is the occupancy probability of cell $i$. To remove noise artifacts, let
+$
+  H_"av" = 1/9 mat(1, 1, 1; 1, 1, 1; 1, 1, 1) * H_i
+$
+We then apply a Sobel filter (commonly used for edge extraction in images) to the entropy map $H_"av"$, defined as follows
+$
+  G_x = mat(-1, 0, 1; -2, 0, 2; -1, 0, 1) * H_"av" \
+  G_y = mat(-1, -2, -1; 0, 0, 0; 1, 2, 1) * H_"av"
+$
+The gradient is then computed as $G = sqrt(G_x^2 + G_y^2)$. An interpretation of this value is that it represents the boundaries between the known (low entropy) and unknown (high entropy) regions. To account for the robot's position and to reward staying close to beacons (to ensure effective localization), we compute the distance to the robot's position $d_c = ||p_c - p||$ and set the cell with the maximum value of $ G / d_c + alpha sum_(i=1)^(n) 1/(||p_b^i - p_c||) $ (where $n$ is the number of known beacons) as the goal. $alpha$ is a tunable parameter that weights the importance of good localization.
+== RRT
 
-// === Simulation and Control
-
-// - *Physics Simulation:*  
-//   A dedicated physics simulation node models robot dynamics, collision detection, and sensor noise using a physics-based model. Geometric processing (e.g., using Shapely) aids in collision checking.
-
-// - *Teleoperation and Autonomous Control:*  
-//   Separate nodes allow for both constant motion commands (autonomous control) and manual overrides (teleoperation). This separation facilitates rapid prototyping and testing.
-
-// == Implementation
-
-// The system is implemented as a collection of modular ROS2 nodes:
-
-// - *Localization Module:*  
-//   Implements a particle filter (see Localization.py) with motion updates, measurement updates, and resampling. Covariance estimation is performed as:
-  
-//   $ Sigma = frac{1}{N-1} sum_{i=1}^{N} left(x_t^{[i]} - bar{x}_tright) left(x_t^{[i]} - bar{x}_tright)^T$ 
-
-// - *Mapping Module:*  
-//   Maintains an occupancy grid updated using sensor data. The log-odds framework and Bresenham ray tracing are central to its operation.
-
-// - *SLAM Node:*  
-//   Integrates localization and mapping, processes sensor topics, and publishes visualization messages (e.g., for particles and estimated poses).
-
-// - *Planner:*  
-//   Combines RRT planning with entropy mapping for goal selection. A PD controller is used to follow the planned path, and the planner incorporates mechanisms to avoid revisiting already explored areas.
-
-// - *Simulation and Teleoperation:*  
-//   A physics simulation node models real-world dynamics, while a teleoperation node provides keyboard-based control for manual testing.
-
-// - *Data Plotting:*  
-//   Post-processing modules (e.g., plotdata.py) generate plots comparing true versus estimated positions, error trends, and particle distributions, facilitating performance evaluation.
-
-// == Contributions and Lessons Learned
-
-// === Contributions
-
-// - *Algorithmic Enhancements:*  
-//   - A vectorized particle filter for efficient and robust localization.
-//   - Integration of beacon data with LiDAR readings for improved mapping accuracy.
-//   - An entropy-driven RRT planner that intelligently selects exploration targets.
-
-// - *System Integration:*  
-//   - A modular design that separates localization, mapping, planning, and simulation, simplifying debugging and future enhancements.
-//   - Real-time visualization tools that provide immediate feedback on system performance.
-
-// - *Robustness and Adaptability:*  
-//   - Dynamic replanning based on updated occupancy grids and exploration boundaries.
-//   - Adaptive parameter selection strategies balancing computation and accuracy.
-
-// === Lessons Learned
-
-// - *Parameter Sensitivity:*  
-//   The performance of the particle filter and RRT planner is highly sensitive to parameters such as noise levels, particle count, and grid resolution. Iterative tuning via simulation was essential.
-
-// - *Trade-Offs:*  
-//   Increasing computational complexity (e.g., more particles or finer grids) improves accuracy but impacts real-time performance. Balancing these trade-offs is crucial.
-
-// - *Modularity Benefits:*  
-//   A modular design allowed for isolated testing of individual components, facilitating easier debugging and upgrades.
-
-// - *Integration Challenges:*  
-//   Coordinating updates between localization, mapping, and planning required careful management of ROS topics, timing, and data consistency.
-
-// == Discussion and Conclusions
-
-// === Pros and Cons
-
-// - *Pros:*  
-//   - *Robust Localization:* The integration of LiDAR and beacon data enhances accuracy.
-//   - *Informed Exploration:* Entropy maps combined with RRT planning lead the robot to high-information areas.
-//   - *Modularity:* The system’s modular architecture simplifies development and future expansions.
-//   - *Real-Time Operation:* Optimized vectorized operations and tuned parameters support real-time performance.
-
-// - *Cons:*  
-//   - *Computational Overhead:* High-resolution grids and numerous particles increase processing demands.
-//   - *Parameter Dependency:* The system’s performance is sensitive to several tuning parameters, suggesting that automated calibration could be beneficial.
-//   - *Integration Complexity:* Coordinating multiple nodes (localization, mapping, planning, simulation) presents integration challenges.
-
-// === Final Thoughts
-
-// Successful autonomous exploration requires more than just making an algorithm “work.” It necessitates a deep understanding of sensor noise, mapping fidelity, planning strategies, and control dynamics. Our system demonstrates a robust integration of these elements, providing a foundation for future research in sensor fusion and intelligent path planning in dynamic, uncertain environments.
-
-// For practitioners, we recommend:
-// - *Investing in modular design* to allow for isolated testing and upgrades.
-// - *Focusing on parameter calibration* using simulation environments.
-// - *Utilizing visualization tools* for real-time feedback and debugging.
-
-// == Additional Equations and Formulas
-
-// Below are the mathematical foundations underlying our system.
-
-// === Particle Filter Localization
-
-// - *Motion Update:*
-  
-//   $ x_t^{[i]} sim p(x_t mid x_{t-1}^{[i]}, u_t)$ 
-
-// - *Measurement Update:*
-  
-//   $ w_t^{[i]} = p(z_t mid x_t^{[i]})$   
-//   Normalized with softmax:
-  
-//   $ w_t^{[i]} = frac{exp(q^{[i]} - max_j q^{[j]})}{sum_{j=1}^N exp(q^{[j]} - max_k q^{[k]})} $
-
-// - *Covariance Estimation:*
-//   +
-//   $ Sigma = frac{1}{N-1} sum_{i=1}^{N} 
+== PD Controller
