@@ -99,7 +99,7 @@ class PhysicsSimNode(Node):
         # Wait until the SLAM node has published a new position
         if not self.slam_done:
             return
-
+        
         intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
         self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
 

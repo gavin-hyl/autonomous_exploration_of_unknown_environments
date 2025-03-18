@@ -41,10 +41,10 @@ class ControllerNode(Node):
         self.count_pose_callbacks = 0
         self.publish_count = 0
         
-        self.get_logger().info("Controller node initialized with constant upward movement")
-        self.get_logger().info(f"Using control input: [{self.control_input[0]}, {self.control_input[1]}, {self.control_input[2]}]")
-        self.get_logger().info(f"Maximum speed: {self.max_speed}")
-        self.get_logger().info(f"Control frequency: {control_freq} Hz")
+        # self.get_logger().info("Controller node initialized with constant upward movement")
+        # self.get_logger().info(f"Using control input: [{self.control_input[0]}, {self.control_input[1]}, {self.control_input[2]}]")
+        # self.get_logger().info(f"Maximum speed: {self.max_speed}")
+        # self.get_logger().info(f"Control frequency: {control_freq} Hz")
 
     def pose_callback(self, msg: PoseStamped):
         """Store the latest estimated pose from SLAM Node."""

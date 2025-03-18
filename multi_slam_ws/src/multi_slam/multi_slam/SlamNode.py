@@ -11,6 +11,7 @@ import numpy as np
 from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header, Bool
 from sensor_msgs_py.point_cloud2 import read_points
+from multi_slam.Planner import Planner
 
 
 class SLAMNode(Node):
@@ -68,6 +69,9 @@ class SLAMNode(Node):
             num_particles=num_particles,
             dt=self.dt
         )
+
+        self.planner = Planner()
+        self.planner.update_map(self.map.get_prob_grid(), self.map.map_origin, self.map.grid_size)
         
         # Lidar range
         self.lidar_range = (0.1, 10.0)  # min and max range in meters
@@ -106,6 +110,8 @@ class SLAMNode(Node):
         
         # Timer for visualization
         self.create_timer(1, self.publish_viz)
+        self.sim_done_cb(Bool(data=True))  # Call once to initialize
+
 
     def sim_done_cb(self, msg: Bool):
         """
@@ -135,6 +141,15 @@ class SLAMNode(Node):
             lidar_range=self.lidar_range,
             beacon_data=self.beacon_data
         )
+        
+        self.get_logger().info("Updated map.")
+
+        self.planner.update_map(self.map.get_prob_grid(), self.map.map_origin, self.map.grid_size)
+        self.planner.update_beacons(self.map.beacon_positions)
+        self.planner.update_position(self.position)
+        goal = self.planner.select_goal_point()
+        self.get_logger().info(f"Goal: {goal}")
+
         self.publish_particles()
         self.slam_done_pub.publish(Bool(data=True))
 

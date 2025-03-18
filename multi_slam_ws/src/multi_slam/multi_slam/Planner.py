@@ -143,9 +143,9 @@ class Planner:
     # TK part 
     def generate_entropy_map(self):  
         """
-        creates entrophy map from the occupancy grid 
+        creates entropy map from the occupancy grid 
 
-        unknown areas (occ_grod = -1) has highest entrophy (1.0)
+        unknown areas (occ_grid = -1) has highest entropy (1.0)
         free areas (occ_grid = 0) has low entrophy (0.2)
         occupied areas (occ_grid > 50) has no entrophy (0.0)
 
@@ -154,14 +154,20 @@ class Planner:
         if self.occupancy_grid is None:
             return None
         
-        entropy_map = np.ones_like(self.occupancy_grid, dtype=float)
-        unknown = (self.occupancy_grid == -1) # unknown
-        free = (self.occupancy_grid == 0)     # free
-        occupied = (self.occupancy_grid > 50)  # above 50 is occupied
+        # Assume occ grid is 0-1
+        o_grid = self.occupancy_grid
+        entropy_map = -o_grid * np.log2(o_grid + 1e-10) - (1 - o_grid) * np.log2(1 - o_grid + 1e-10)
+        entropy_map = np.nan_to_num(entropy_map)
 
-        entropy_map[unknown] = 1.0 # high entropy
-        entropy_map[free] = 0.2    # low entropy
-        entropy_map[occupied] = 0.0 # no entropy
+        # entropy_map = np.ones_like(self.occupancy_grid, dtype=float)
+        # unknown = (self.occupancy_grid == -1) # unknown
+        # free = (self.occupancy_grid == 0)     # free
+        # occupied = (self.occupancy_grid > 50)  # above 50 is occupied
+
+        # entropy_map[unknown] = 1.0 # high entropy
+        # entropy_map[free] = 0.2    # low entropy
+        # entropy_map[occupied] = 0.0 # no entropy
+
 
         # gaussian filter for smoothnes (optional)
         entropy_map = gaussian_filter(entropy_map, sigma=2)
@@ -217,15 +223,16 @@ class Planner:
         # find candidate points
         if self.occupancy_grid is None:
             return None
-        entrophy_map = self.generate_entropy_map()
-        if entrophy_map is None:
+        
+        entropy_map = self.generate_entropy_map()
+        if entropy_map is None:
             return None
         
         # boundaries based on entrophy
-        boundary_map = self.detect_exploration_boundary(entrophy_map)
+        boundary_map = self.detect_exploration_boundary(entropy_map)
 
         # mean filter applied to boundary map
-        filtered_boundary = cv2.boxFilter(boundary_map, -1, (15, 15)) # 15 by 15 kernel 
+        filtered_boundary = cv2.boxFilter(boundary_map, -1, (15, 15)) # 15 by 15 kernel
         # replacing the filtered boundary w max value in 25 by 25 kernel
         max_filtered = cv2.dilate(filtered_boundary, np.ones((25, 25)))
         local_maximas = (filtered_boundary == max_filtered) & (filtered_boundary > 0.3)
@@ -274,27 +281,27 @@ class Planner:
                     idx = goal_pts.index((world_x, world_y, score))
                     goal_pts[idx] = (world_x, world_y, new_score)
 
-    # if there are no goal points, select random point
-    if not goal_pts:
-        attempts = 0
-        while attempts < 100:
-            rand_grid_x = random.randint(0, self.grid_width - 1)
-            rand_grid_y = random.randint(0, self.grid_height - 1)
+        # if there are no goal points, select random point
+        if not goal_pts:
+            attempts = 0
+            while attempts < 100:
+                rand_grid_x = random.randint(0, self.grid_width - 1)
+                rand_grid_y = random.randint(0, self.grid_height - 1)
 
-            # unoccupied cells
-            if self.occupancy_grid[rand_grid_y, rand_grid_x] < 50:
-                dist = math.sqrt((rand_grid_x - robot_grid_x)**2 + (rand_grid_y - robot_grid_y)**2)
-                
-                if 10 < dist < search_radius:
-                    world_x, world_y = self.grid_to_world(rand_grid_x, rand_grid_y)
-                    return world_x, world_y
-                
-            attempts += 1
+                # unoccupied cells
+                if self.occupancy_grid[rand_grid_y, rand_grid_x] < 50:
+                    dist = math.sqrt((rand_grid_x - robot_grid_x)**2 + (rand_grid_y - robot_grid_y)**2)
+                    
+                    if 10 < dist < search_radius:
+                        world_x, world_y = self.grid_to_world(rand_grid_x, rand_grid_y)
+                        return world_x, world_y
+                    
+                attempts += 1
+            
+            return self.current_pos[0], self.current_pos[1]
         
-        return self.current_pos[0], self.current_pos[1]
-    
-    best_goal_pt = max(goal_pts, key=lambda x: x[2])
-    return best_goal_pt[0], best_goal_pt[1]
+        best_goal_pt = max(goal_pts, key=lambda x: x[2])
+        return best_goal_pt[0], best_goal_pt[1]
                        
 
     def check_collision(self, x, y):
