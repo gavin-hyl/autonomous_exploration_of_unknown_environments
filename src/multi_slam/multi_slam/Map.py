@@ -188,6 +188,8 @@ MAP = Map(-10, -10, 10, 10)
 
 for x in [-8.75, 0, 8.75]:
     for y in [-8.75, 0, 8.75]:
+        if x == 0 and y == 0:
+            continue
         MAP._add_beacon(Point(x, y))
 
 for center_x in [-4, 4]:

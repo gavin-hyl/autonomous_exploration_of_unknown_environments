@@ -2,31 +2,40 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import PointCloud2
-from geometry_msgs.msg import PoseStamped, Vector3, Twist
-from nav_msgs.msg import OccupancyGrid, Path, MapMetaData
+from geometry_msgs.msg import Vector3
+from nav_msgs.msg import OccupancyGrid
 from visualization_msgs.msg import Marker, MarkerArray
 from multi_slam.Localization import Localization
 from multi_slam.Mapping import Mapping
 import numpy as np
+from sensor_msgs_py import point_cloud2
+from std_msgs.msg import Header, Bool
 from sensor_msgs_py.point_cloud2 import read_points
-import math
-import time
-from std_msgs.msg import Float32, Bool
+from multi_slam.Planner import Planner
 
 
 class SLAMNode(Node):
+    """
+    Simultaneous Localization and Mapping (SLAM) node.
+    
+    Processes sensor data from LiDAR and beacons to perform SLAM,
+    maintaining a probabilistic map and robot pose estimate.
+    """
+    
     def __init__(self):
+        """Initialize the SLAM node with publishers, subscribers, and parameters."""
         super().__init__("slam_node")
         
         # Parameters
-        self.declare_parameter('map_size_x', 100.0)
-        self.declare_parameter('map_size_y', 100.0)
-        self.declare_parameter('map_origin_x', -50.0)
-        self.declare_parameter('map_origin_y', -50.0)
+        self.declare_parameter('map_size_x', 50.0)
+        self.declare_parameter('map_size_y', 50.0)
+        self.declare_parameter('map_origin_x', -25.0)
+        self.declare_parameter('map_origin_y', -25.0)
         self.declare_parameter('grid_size', 0.1)
         self.declare_parameter('num_particles', 1000)
         self.declare_parameter('position_std_dev', 0.1)
-        
+        self.declare_parameter('initial_noise', 0.5)
+
         # Get parameters
         map_size_x = self.get_parameter('map_size_x').value
         map_size_y = self.get_parameter('map_size_y').value
@@ -35,7 +44,8 @@ class SLAMNode(Node):
         grid_size = self.get_parameter('grid_size').value
         num_particles = self.get_parameter('num_particles').value
         position_std_dev = self.get_parameter('position_std_dev').value
-        
+        initial_noise = self.get_parameter('initial_noise').value
+    
         # Initialize Map and Localization
         self.map = Mapping(
             map_size=(map_size_x, map_size_y),
@@ -54,10 +64,14 @@ class SLAMNode(Node):
         # Initialize Localization
         self.localization = Localization(
             initial_location=initial_position, 
+            initial_noise=initial_noise,
             std_dev_noise=position_std_dev,
             num_particles=num_particles,
             dt=self.dt
         )
+
+        self.planner = Planner()
+        self.planner.update_map(self.map.get_prob_grid(), self.map.map_origin, self.map.grid_size)
         
         # Lidar range
         self.lidar_range = (0.1, 10.0)  # min and max range in meters
@@ -66,6 +80,9 @@ class SLAMNode(Node):
         self.lidar_data = []
         self.beacon_data = []
         self.control_input = np.zeros(3)  # vx, vy, 0
+        self.pos_hat_new = np.array([0.0, 0.0, 0.0])
+        self.particles = None
+        self.sim_done = True
 
         # Subscribers
         self.create_subscription(
@@ -77,93 +94,107 @@ class SLAMNode(Node):
         self.create_subscription(
             Vector3, "/control_signal", self.control_callback, 10
         )
-
         self.create_subscription(
-            Vector3, "/pos_hat_new", self.pos_hat_new_callback, 10
+            PointCloud2, "/particles_pred", self.particles_pred_callback, 10
+        )
+        self.sim_done_sub = self.create_subscription(
+            Bool, "/sim_done", self.sim_done_cb, 10
         )
 
-        
-        self.pos_hat_pub = self.create_publisher(Vector3, "/pos_hat", 10)
-        self.slam_done_pub = self.create_publisher(Bool, "/slam_done", 10)
-        self.sim_done_sub = self.create_subscription(Bool, "/sim_done", self.sim_done_cb, 10)
-        self.sim_done = True
-
-
         # Publishers
+        self.particles_pub = self.create_publisher(PointCloud2, "particles", 10)
+        self.slam_done_pub = self.create_publisher(Bool, "/slam_done", 10)
         self.pose_pub = self.create_publisher(Marker, "/pos_hat_viz", 10)
         self.map_pub = self.create_publisher(OccupancyGrid, "/occupancy_grid", 10)
         self.beacon_pub = self.create_publisher(MarkerArray, "/estimated_beacons", 10)
-        # Publisher for control commands (when using proposed control method)
-        self.cmd_vel_pub = self.create_publisher(Vector3, "/control_signal", 10)
         
-        # Timer for SLAM main loop
-        self.pos_hat_new = np.array([0.0, 0.0, 0.0])
-
+        # Timer for visualization
         self.create_timer(1, self.publish_viz)
-
+        self.sim_done_cb(Bool(data=True))  # Call once to initialize
 
 
     def sim_done_cb(self, msg: Bool):
+        """
+        Process simulation step completion and update SLAM state.
+        
+        This is the main SLAM update loop that runs when the physics simulation
+        has completed a step.
+        """
         # Localization
-        # updated_position, updated_cov = self.localization.update_position(
-        #     self.pos_hat_new,
-        #     self.beacon_data,
-        #     self.map
-        # )
-        
-        # updated_position[2] = 0.0
-        self.position = self.pos_hat_new
-        # self.position = updated_position
-        # self.position_cov = updated_cov
-        
-        # pos_hat_msg = Vector3()
-        # pos_hat_msg.x = self.position[0]
-        # pos_hat_msg.y = self.position[1]
-        # pos_hat_msg.z = self.position[2]
-        # self.pos_hat_pub.publish(pos_hat_msg)
-        
-        # self.map.update(
-        #     robot_pos=self.position,
-        #     robot_cov=self.position_cov,
-        #     lidar_data=self.lidar_data,
-        #     lidar_range=self.lidar_range,
-        #     beacon_data=self.beacon_data
-        # )
+        particles, cov = self.localization.update_position(
+            self.beacon_data,
+            self.map
+        )
 
+        pos_hat_new = np.average(particles, axis=0)
+        pos_hat_new = pos_hat_new.astype(float)
+        pos_hat_new[2] = 0.0
+
+        self.pos_hat_new = pos_hat_new
+        self.position = self.pos_hat_new
+        self.position_cov = cov
+        
+        self.map.update(
+            robot_pos=self.position,
+            robot_cov=self.position_cov,
+            lidar_data=self.lidar_data,
+            lidar_range=self.lidar_range,
+            beacon_data=self.beacon_data
+        )
+        
+        self.get_logger().info("Updated map.")
+
+        self.planner.update_map(self.map.get_prob_grid(), self.map.map_origin, self.map.grid_size)
+        self.planner.update_beacons(self.map.beacon_positions)
+        self.planner.update_position(self.position)
+        goal = self.planner.select_goal_point()
+        self.get_logger().info(f"Goal: {goal}")
+
+        self.publish_particles()
         self.slam_done_pub.publish(Bool(data=True))
 
     def particles_callback(self, msg: PointCloud2):
-        """Process particles"""
+        """Process particles from visualization."""
         points = list(read_points(msg, field_names=("x", "y", "z")))
         self.particles = np.array([np.array([p[0], p[1], p[2]]) for p in points])
 
     def publish_viz(self):
+        """Publish all visualization messages."""
         self.publish_pos_viz()
         self.publish_map_viz()
         self.publish_beacons_viz()
 
-
     def lidar_callback(self, msg: PointCloud2):
-        """Process LiDAR data"""
+        """Process LiDAR data."""
         points = list(read_points(msg, field_names=("x", "y", "z")))
         self.lidar_data = [np.array([p[0], p[1], p[2]]) for p in points]
 
     def beacon_callback(self, msg: PointCloud2):
-        """Process beacon data"""
+        """Process beacon data."""
         points = list(read_points(msg, field_names=("x", "y", "z")))
         self.beacon_data = [np.array([p[0], p[1], p[2]]) for p in points]
 
+    def particles_pred_callback(self, msg: PointCloud2):
+        """Process predicted particles from motion model."""
+        points = list(read_points(msg, field_names=("x", "y", "z")))
+        self.localization.particles = [np.array([p[0], p[1], p[2]]) for p in points]
+
     def control_callback(self, msg: Vector3):
-        """Process control input"""
+        """Process control input."""
         self.control_input = np.array([msg.x, msg.y, msg.z])
 
-    def pos_hat_new_callback(self, msg: Vector3):
-        """Process updated position"""
-        self.pos_hat_new = np.array([msg.x, msg.y, msg.z])
+    def publish_particles(self):
+        """Publish particle filter state."""
+        particles = self.localization.particles
 
+        header = Header()
+        header.stamp = self.get_clock().now().to_msg()
+        header.frame_id = "map"
+        particles_msg = point_cloud2.create_cloud_xyz32(header, particles)
+        self.particles_pub.publish(particles_msg)
 
     def publish_pos_viz(self):
-        """Publish the estimated pose"""
+        """Publish the estimated pose visualization marker."""
         marker = Marker()
         marker.header.frame_id = "map"
         marker.header.stamp = self.get_clock().now().to_msg()
@@ -191,7 +222,7 @@ class SLAMNode(Node):
         self.pose_pub.publish(marker)
 
     def publish_map_viz(self):
-        """Publish occupancy grid"""
+        """Publish occupancy grid for visualization."""
         # Create occupancy grid message
         msg = OccupancyGrid()
         msg.header.stamp = self.get_clock().now().to_msg()
@@ -206,14 +237,13 @@ class SLAMNode(Node):
         msg.info.origin.position.y = self.map.map_origin[1]
         
         # Convert log-odds to probabilities (0-100)
-        probs = 1.0 / (1.0 + np.exp(-self.map.log_odds_grid))
+        probs = self.map.get_prob_grid()
         msg.data = (probs * 100).astype(int).flatten().tolist()
         
         self.map_pub.publish(msg)
 
-
     def publish_beacons_viz(self):
-        """Publish estimated beacon positions"""
+        """Publish estimated beacon positions for visualization."""
         marker_array = MarkerArray()
         
         for i, (beacon_pos, beacon_cov) in enumerate(zip(self.map.beacon_positions, self.map.beacon_covariances)):
@@ -249,11 +279,13 @@ class SLAMNode(Node):
 
 
 def main(args=None):
+    """Entry point for the SLAM node."""
     rclpy.init(args=args)
     node = SLAMNode()
     rclpy.spin(node)
     node.destroy_node()
     rclpy.shutdown()
+
 
 if __name__ == "__main__":
     main()

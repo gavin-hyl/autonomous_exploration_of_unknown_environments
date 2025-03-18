@@ -26,6 +26,8 @@ setup(
             'controller_node = multi_slam.ControllerNode:main',
             'teleop_keyboard = multi_slam.teleop_keyboard:main',
             'slam_node = multi_slam.SlamNode:main',
+            'planner_slam_node = multi_slam.PlannerSlamNode:main',
+            'planner_controller_node = multi_slam.PlannerControllerNode:main',
         ],
     },
 )

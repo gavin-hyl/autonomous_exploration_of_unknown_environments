@@ -4,20 +4,38 @@ from geometry_msgs.msg import Vector3
 from sensor_msgs.msg import PointCloud2
 from sensor_msgs_py import point_cloud2 as pc2
 from multi_slam.Map import MAP
-from std_msgs.msg import Header
+from std_msgs.msg import Header, Bool
 import numpy as np
 from visualization_msgs.msg import Marker
 import math
 from shapely.geometry import Point
-from std_msgs.msg import Bool
+
 
 class PhysicsSimNode(Node):
+    """
+    Physics simulation node that handles robot movement and sensor simulation.
+    
+    Simulates robot movement, collision detection, and generates sensor data (LiDAR, beacons).
+    """
+    
     def __init__(self):
+        """Initialize the physics simulation node with publishers, subscribers, and parameters."""
         super().__init__("physics_sim")
+        
+        # Subscribers
         self.control_signal_sub = self.create_subscription(
             Vector3, "control_signal", self.control_signal_cb, 10
         )
+        
+        self.slam_done_sub = self.create_subscription(
+            Bool, "/slam_done", self.slam_done_cb, 10
+        )
+        
+        self.create_subscription(
+            PointCloud2, "/particles", self.particles_callback, 10
+        )
 
+        # Parameters
         self.declare_parameter("lidar_r_max", 10.0)
         self.lidar_r_max = self.get_parameter("lidar_r_max").value
 
@@ -27,13 +45,13 @@ class PhysicsSimNode(Node):
         self.declare_parameter("lidar_delta_theta", 3)
         self.lidar_delta_theta = self.get_parameter("lidar_delta_theta").value
 
-        self.declare_parameter("lidar_std_dev", 0)
+        self.declare_parameter("lidar_std_dev", 0.1)
         self.lidar_std_dev = self.get_parameter("lidar_std_dev").value
 
-        self.declare_parameter("beacon_std_dev", 0)
+        self.declare_parameter("beacon_std_dev", 0.1)
         self.beacon_std_dev = self.get_parameter("beacon_std_dev").value
 
-        self.declare_parameter("vel_std_dev", 0)
+        self.declare_parameter("vel_std_dev", 0.4)
         self.vel_std_dev = self.get_parameter("vel_std_dev").value
 
         self.declare_parameter("collision_buffer", 0.1)
@@ -45,9 +63,9 @@ class PhysicsSimNode(Node):
         self.declare_parameter("sim_dt", 0.1)
         self.sim_dt = self.get_parameter("sim_dt").value
 
+        # Publishers
         self.lidar_pub = self.create_publisher(PointCloud2, "lidar", 10)
         self.beacon_pub = self.create_publisher(PointCloud2, "beacon", 10)
-
         self.pos_true_viz_pub = self.create_publisher(
             Marker, "visualization_marker_true", 10
         )
@@ -57,49 +75,37 @@ class PhysicsSimNode(Node):
         self.lidar_viz_pub = self.create_publisher(
             PointCloud2, "lidar_viz", 10
         )
-
-        self.lidar_pub_timer = self.create_timer(0.1, self.lidar_publish_cb)
-        self.beacon_pub_timer = self.create_timer(0.1, self.beacon_publish_cb)
-        self.sim_update_timer = self.create_timer(self.sim_dt, self.sim_update_cb)
-
-        self.pos_true = np.array([0, 0, 0], dtype=float)
-        self.vel_true = np.array([0, 0, 0], dtype=float)
-        self.vel_ideal = np.array([0, 0, 0], dtype=float)
-
-        self.slam_done = True
-        self.slam_done_sub = self.create_subscription(
-            Bool, "/slam_done", self.slam_done_cb, 10
-        )
         self.sim_done_pub = self.create_publisher(Bool, "/sim_done", 10)
-
-        self.pos_baseline = np.array([0, 0, 0], dtype=float)
         self.pos_baseline_viz_pub = self.create_publisher(Marker, "/pos_baseline_viz", 10)
-
-        self.create_subscription(
-            PointCloud2, "/particles", self.particles_callback, 10
-        )
-
         self.particles_pred_pub = self.create_publisher(
             PointCloud2, "/particles_pred", 10
         )
 
+        # Timers
+        self.lidar_pub_timer = self.create_timer(0.1, self.lidar_publish_cb)
+        self.beacon_pub_timer = self.create_timer(0.1, self.beacon_publish_cb)
+        self.sim_update_timer = self.create_timer(self.sim_dt, self.sim_update_cb)
+
+        # State variables
+        self.pos_true = np.array([0, 0, 0], dtype=float)
+        self.vel_true = np.array([0, 0, 0], dtype=float)
+        self.vel_ideal = np.array([0, 0, 0], dtype=float)
+        self.slam_done = True
+        self.pos_baseline = np.array([0, 0, 0], dtype=float)
         self.particles = None
 
-    # ================================
-    # SIMULATION UPDATE LOOP
-    # ================================
     def sim_update_cb(self):
-        # wait until the SLAM node has published a new position
+        """Update simulation state at each time step."""
+        # Wait until the SLAM node has published a new position
         if not self.slam_done:
             return
-
+        
         intended_true_pos = self.pos_true + self.vel_true * self.sim_dt
         self.pos_true = self.check_collision(self.pos_true, intended_true_pos)
 
         self.pos_baseline += self.vel_ideal * self.sim_dt
         self.pub_pos_true_viz()
         self.pub_pos_baseline_viz()
-
 
         if self.particles is not None:
             particles_pred = self.particles + self.vel_ideal * self.sim_dt
@@ -109,30 +115,23 @@ class PhysicsSimNode(Node):
         
         self.sim_done_pub.publish(Bool(data=True))
         self.slam_done = False
-    # ================================
-    # END SIMULATION UPDATE LOOP
-    # ================================
-
 
     def particles_callback(self, msg: PointCloud2):
+        """Store particle positions from SLAM node."""
         points = list(pc2.read_points(msg, field_names=("x", "y", "z"), skip_nans=True))
         self.particles = np.array([np.array([p[0], p[1], p[2]]) for p in points])
 
-
     def slam_done_cb(self, _: Bool):
+        """Mark SLAM processing as complete."""
         self.slam_done = True
 
-
-    def pos_hat_cb(self, msg: Vector3):
-        self.pos_hat_new = np.array([msg.x, msg.y, msg.z])
-
-
     def control_signal_cb(self, msg: Vector3):
+        """Process control commands and apply noise to simulate real-world conditions."""
         self.vel_ideal = np.array([msg.x, msg.y, 0.0])
         self.vel_true = self._apply_2d_noise([self.vel_ideal], self.vel_std_dev)[0]
-        
 
     def _apply_2d_noise(self, points: np.array, std_dev: float):
+        """Apply Gaussian noise to 2D points to simulate sensor noise."""
         noisy_points = []
         for point in points:
             noisy_point = np.array(
@@ -145,17 +144,17 @@ class PhysicsSimNode(Node):
             noisy_points.append(noisy_point)
         return noisy_points
 
-
     def create_robot_polygon(self, position):
-        x, y, _ = position
+        """Create a circular buffer around the robot for collision detection."""
         return Point(position[0], position[1]).buffer(self.collision_buffer)
-
 
     def check_collision(self, current_pos, intended_pos):
         """
-        Enhanced collision check using a point-based model with buffer
-        """
+        Check for collisions between robot and environment.
         
+        Uses incremental movement to detect collisions accurately.
+        Returns the farthest safe position without collisions.
+        """
         # Create a circular buffer at the intended position
         robot_circle = self.create_robot_polygon(intended_pos)
         
@@ -222,6 +221,7 @@ class PhysicsSimNode(Node):
             return safe_pos
 
     def lidar_publish_cb(self):
+        """Generate and publish simulated LiDAR data."""
         # Use the true position (with noise) for LiDAR measurements
         points = MAP.calc_lidar_point_cloud(
             self.pos_true,
@@ -253,6 +253,7 @@ class PhysicsSimNode(Node):
         self.lidar_viz_pub.publish(lidar_points_world_msg)
 
     def beacon_publish_cb(self):
+        """Generate and publish simulated beacon data."""
         # Use the true position (with noise) for beacon measurements
         points = MAP.calc_beacon_positions(self.pos_true)
         # Apply sensor noise
@@ -279,7 +280,7 @@ class PhysicsSimNode(Node):
         self.beacon_viz_pub.publish(beacon_positions_world_msg)
 
     def pub_pos_true_viz(self):
-        """Publish the true position marker (actual physical position with noise)"""
+        """Publish the true position marker (actual physical position with noise)."""
         marker = Marker()
         marker.header = Header(stamp=self.get_clock().now().to_msg(), frame_id="map")
         marker.ns = "true_position"
@@ -311,8 +312,8 @@ class PhysicsSimNode(Node):
 
         self.pos_true_viz_pub.publish(marker)
 
-
     def pub_pos_baseline_viz(self):
+        """Publish the baseline position marker (idealized position without noise)."""
         marker = Marker()
         marker.header.stamp = self.get_clock().now().to_msg()
         marker.header.frame_id = "map"
@@ -338,6 +339,7 @@ class PhysicsSimNode(Node):
 
 
 def main(args=None):
+    """Entry point for the physics simulation node."""
     rclpy.init(args=args)
     node = PhysicsSimNode()
     try:
