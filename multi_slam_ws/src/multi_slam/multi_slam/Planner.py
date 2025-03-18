@@ -400,17 +400,51 @@ class Planner:
 
     def compute_control(self, current_pos, path, dt):
         """
-        Calculate control input to follow a given path (using PD controller)
+        return control input to follow a given path (using PD controller)
         
-        Args:
-            current_pos (numpy.ndarray): Current position [x, y]
-            path (list): Path coordinate list [[x1, y1], [x2, y2], ...]
-            dt (float): Time interval
-            
-        Returns:
-            numpy.ndarray: Control input [vx, vy]
         """
-        pass
+        
+        if path is None or len(path) < 2:
+            return np.array([0.0, 0.0])
+        
+        # Ensure current path index is valid
+        if self.current_path_index >= len(path):
+            self.current_path_index = len(path) - 1
+
+        target_pos = np.array(path[self.current_path_index])
+        distance = np.linalg.norm(target_pos - current_pos)
+
+        # reached target point
+        if distance < 0.1:
+            self.current_path_index += 1
+
+            # at last point of path
+            if self.current_path_index >= len(path):
+                self.current_path_index = len(path) - 1
+                return np.array([0.0, 0.0])
+            
+            target_pos = np.array(path[self.current_path_index])
+        
+        # controller 
+        error = target_pos - current_pos
+
+        d_error = (error - self.prev_error) / dt if dt > 0 else np.array([0.0, 0.0])
+        self.prev_error = error.copy()
+
+        # pd control 
+        control_input = self.pd_p_gain * error + self.pd_d_gain * d_error
+
+        # control input clipping 
+        max_speed = 1.0
+        control_norm = np.linalg.norm(control_input)
+
+        if control_norm > max_speed:
+            control_input = control_input / control_norm * max_speed
+
+        self.last_control = control_input.copy()
+
+        return control_input
+       
 
     def plan_and_control(self, dt):
         """
@@ -422,4 +456,33 @@ class Planner:
         Returns:
             numpy.ndarray: Control input [vx, vy]
         """
-        pass
+        if self.occupancy_grid is None:
+            return np.array([0.0, 0.0])
+        
+        # no current path or replanning is needed
+        if self.current_path is None or len(self.current_path) == 0 or time.time() - self.planning_time > 10.0:
+            # if it is already planning, keep previous control
+            if self.is_planning:
+                return self.last_control
+            
+            goal_x, goal_y = self.select_goal_point()
+            if goal_x is None or goal_y is None:
+                return np.array([0.0, 0.0])
+            
+            goal_pos = np.array([goal_x, goal_y])
+            print(f"New goal point: {goal_pos}")
+
+            # path planner using RRT
+            path = self.rrt_planning(self.current_pos, goal_pos)
+
+            if path is None:
+                return self.last_control
+
+            self.current_path = path
+            self.current_path_index = 0
+            self.planning_time = time.time()
+
+            control = self.compute_control(self.current_pos, self.current_path, dt)
+        
+        return control
+            
