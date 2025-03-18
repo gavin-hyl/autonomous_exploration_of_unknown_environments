@@ -240,6 +240,8 @@ class Planner:
         goal_pts = []
         y_idx, x_idx = np.where(local_maximas)
 
+        search_radius = int(5.0 / self.map_resolution)
+
         for i in range(len(y_idx)):
             x = x_idx[i]
             y = y_idx[i]
@@ -248,7 +250,7 @@ class Planner:
                 continue
 
             d = math.sqrt((x - robot_grid_x)**2 + (y - robot_grid_y)**2)
-            search_radius = int(5.0 / self.map_resolution)
+            
 
             if 10 < d < search_radius:
                 gradient_x, gradient_y = self.compute_entropy_gradient(entropy_map)
