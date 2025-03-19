@@ -16,7 +16,7 @@ class Mapping:
 
         self.beacon_positions = []
         self.beacon_covariances = []
-        
+        self.beacon_particles = []
         # Constants
         self.L_FREE = -0.1
         self.L_OCC = 0.3
@@ -30,7 +30,8 @@ class Mapping:
                robot_cov: np.ndarray,
                lidar_data: list[np.ndarray],
                lidar_range: tuple[float, float],
-               beacon_data: list[np.ndarray]):
+               beacon_data: list[np.ndarray],
+               beacon_particles: np.ndarray):
         """
         Update the map with new sensor data.
         

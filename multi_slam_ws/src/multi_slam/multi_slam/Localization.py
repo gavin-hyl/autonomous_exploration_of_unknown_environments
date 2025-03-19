@@ -25,6 +25,7 @@ class Localization:
         noise = np.random.normal(0, self.initial_noise, (self.num_particles, 2))
         self.particles = self.initial_location - np.zeros((self.num_particles, 3))
         self.particles = self.particles + np.pad(noise, ((0, 0), (0, 1)))  # pad with zeros for z
+        self.beacon_particles = None
     
     def update_position(self, beacon_data, estimated_map):
         if self.particles is None:
@@ -58,7 +59,12 @@ class Localization:
 
         cov = np.cov(particles.T)
 
-        return particles, cov
+        beacon_particles = []
+        for beacon in beacon_data:
+            beacon_particles.append(beacon + particles)
+        
+        self.beacon_particles = beacon_particles
+        return particles, cov, beacon_particles
 
     def calculate_score(self, particle, beacon_data, estimated_map):
         score = 0 
