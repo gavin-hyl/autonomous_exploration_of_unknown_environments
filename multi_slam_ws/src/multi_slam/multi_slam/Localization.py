@@ -84,7 +84,7 @@ class Localization:
             if closest_beacon is None:
                 return -1e9
 
-            score += np.clip(1 / np.sqrt(sum((closest_beacon - global_beacon) ** 2)), 0, 1e5)
+            score += np.clip(1 / (sum((closest_beacon - global_beacon) ** 2)), 0, 1e5)
         
         return score
 
