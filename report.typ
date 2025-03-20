@@ -120,6 +120,10 @@ $
   G_y = mat(-1, -2, -1; 0, 0, 0; 1, 2, 1) * H_"av"
 $
 The gradient is then computed as $G = sqrt(G_x^2 + G_y^2)$. An interpretation of this value is that it represents the boundaries between the known (low entropy) and unknown (high entropy) regions. To account for the robot's position and to reward staying close to beacons (to ensure effective localization), we compute the distance to the robot's position $d_c = ||p_c - p||$ and set the cell with the maximum value of $ G / d_c + alpha sum_(i=1)^(n) 1/(||p_b^i - p_c||) $ (where $n$ is the number of known beacons) as the goal. $alpha$ is a tunable parameter that weights the importance of good localization.
+
+
 == RRT
+// FIXME maybe we don't want to implement this?
+
 
 == PD Controller
