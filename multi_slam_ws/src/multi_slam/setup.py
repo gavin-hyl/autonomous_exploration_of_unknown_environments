@@ -22,6 +22,8 @@ setup(
     entry_points={
         'console_scripts': [
             # 'visualization = multi_slam.visualization:main'
+            'planner_slam_node = multi_slam.PlannerSlamNode:main',
+            'planner_controller_node = multi_slam.PlannerControllerNode:main',
             'physics_sim = multi_slam.PhysicsSimNode:main',
             'controller_node = multi_slam.ControllerNode:main',
             'teleop_keyboard = multi_slam.teleop_keyboard:main',
