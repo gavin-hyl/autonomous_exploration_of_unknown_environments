@@ -77,7 +77,7 @@ class Map:
             float: MSE to the closest beacon, or -10e5 if no beacons exist.
         """
         if not self.beacons:
-            return -10e5
+            return 10e5
         
         # Convert numpy array point to Shapely Point for distance calculation
         shapely_point = Point(point[0], point[1])
