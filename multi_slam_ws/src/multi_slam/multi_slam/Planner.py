@@ -1,12 +1,13 @@
 import numpy as np
 import math
 import cv2
-from scipy.ndimage import sobel, gaussian_filter
+from scipy.ndimage import sobel, gaussian_filter, binary_dilation
 from scipy.spatial import KDTree
 from typing import List, Tuple, Optional
 import random
 import time
 import logging
+from sklearn.cluster import DBSCAN
 
 
 ########## RRT Node Class ##########
@@ -31,7 +32,11 @@ class Planner:
                  pd_d_gain=0.2,
                  entropy_weight=1.0,
                  beacon_weight=2.0,
-                 beacon_attraction_radius=3.0):
+                 beacon_attraction_radius=3.0,
+                 coverage_threshold=0.95,
+                 sensor_range=10.0,
+                 min_frontier_size=3,
+                 corridor_threshold=2.0):
         """        
         Args:
             map_resolution (float): Map resolution (meters/cell)
@@ -44,6 +49,10 @@ class Planner:
             entropy_weight (float): Entropy map weight
             beacon_weight (float): Beacon position weight
             beacon_attraction_radius (float): Beacon attraction radius
+            coverage_threshold (float): Threshold for exploration coverage to consider complete
+            sensor_range (float): Maximum sensor range for planning
+            min_frontier_size (int): Minimum size of frontier clusters to consider
+            corridor_threshold (float): Threshold for corridor width detection
         """
         # RRT parameters
         self.rrt_step_size = rrt_step_size
@@ -100,6 +109,13 @@ class Planner:
         self.goal_reached_dist = 0.3  # Distance threshold to consider goal reached (meters)
         self.waypoint_reached_dist = 0.2  # Distance threshold to consider waypoint reached (meters)
         self.min_replan_time = 15.0  # Minimum time between replanning (seconds)
+        
+        # 최적화된 계획 흐름을 위한 변수들
+        self.coverage_threshold = coverage_threshold  # 탐험 완료 임계값
+        self.sensor_range = sensor_range  # 센서 범위
+        self.min_frontier_size = min_frontier_size  # 최소 프론티어 크기
+        self.corridor_threshold = corridor_threshold  # 코리도 감지 임계값
+        self.exploration_complete = False  # 탐험 완료 플래그
 
     def update_map(self, occupancy_grid, grid_origin, grid_resolution):
         """
@@ -829,264 +845,576 @@ class Planner:
 
     def optimize_path(self, path):
         """
-        Optimize path (remove unnecessary intermediate nodes)
+        Optimize a path to prefer corridor centers and smoothness
+        코리도 중심과 매끄러움을 선호하도록 경로 최적화
         
         Args:
-            path (list): Path coordinate list [[x1, y1], [x2, y2], ...]
+            path (list): List of waypoints [[x1, y1], [x2, y2], ...]
             
         Returns:
-            list: Optimized path coordinate list
+            list: Optimized path
         """
-        if path is None or len(path) <= 2:
+        if not path or len(path) < 2:
             return path
+            
+        optimized_path = [path[0]]  # 시작점은 유지
         
-        optimized_path = [path[0]]  # Add start point
+        # 중간 웨이포인트 최적화
+        for i in range(1, len(path) - 1):
+            # 웨이포인트의 여유 공간 계산
+            grid_x, grid_y = self.world_to_grid(path[i][0], path[i][1])
+            clearance = self.calculate_clearance((grid_y, grid_x))
+            
+            # 여유 공간이 적으면 코리도 중심으로 조정
+            if clearance < self.corridor_threshold:
+                adjusted_point = self.adjust_toward_corridor_center(path[i])
+                optimized_path.append(adjusted_point)
+            else:
+                optimized_path.append(path[i])
+        
+        optimized_path.append(path[-1])  # 목표점은 유지
+        
+        # 경로 평활화 (불필요한 웨이포인트 제거)
         i = 0
-        
-        while i < len(path) - 1:
-            # Check next points from current point
-            for j in range(len(path) - 1, i, -1):
-                # Check if direct connection is possible
-                if not self.check_path_collision(path[i][0], path[i][1], path[j][0], path[j][1]):
-                    # If direct connection is possible, add that point and skip intermediate points
-                    optimized_path.append(path[j])
-                    i = j
-                    break
+        while i < len(optimized_path) - 2:
+            # 두 웨이포인트를 직접 연결했을 때 충돌이 없으면 중간 웨이포인트 제거
+            if not self.check_path_collision(
+                optimized_path[i][0], optimized_path[i][1],
+                optimized_path[i+2][0], optimized_path[i+2][1]
+            ):
+                optimized_path.pop(i+1)
             else:
-                # If direct connection is not possible, add next point
                 i += 1
-                if i < len(path):
-                    optimized_path.append(path[i])
-        
+                
         return optimized_path
-
-    ##################################################
-
-    def compute_control(self, current_pos, path, dt):
+        
+    def calculate_entropy_map(self):
         """
-        return control input to follow a given path (using PD controller)
+        Calculate entropy map from occupancy grid
+        엔트로피 맵을 계산하여 탐색 경계를 찾는 데 사용
         
+        Returns:
+            numpy.ndarray: Entropy map
         """
+        # Entropy = -p*log(p) - (1-p)*log(1-p)
+        # 0이나 1에 가까운 값에 대해 로그가 정의되지 않으므로 값 클리핑
+        p = np.clip(self.occupancy_grid / 100.0, 0.001, 0.999)  # Occupancy grid is 0-100
+        entropy = -p * np.log(p) - (1-p) * np.log(1-p)
         
-        if path is None or len(path) < 2:
-            print(f"Warning: Path is {path} - returning zero control")
-            return np.array([0.0, 0.0])
+        # 장애물 영역(p > 0.65)은 엔트로피를 0으로 설정
+        entropy[p > 0.65] = 0
         
-        # Ensure current path index is valid
-        if self.current_path_index >= len(path):
-            print(f"Warning: Path index {self.current_path_index} >= path length {len(path)}")
-            self.current_path_index = len(path) - 1
-
-        target_pos = np.array(path[self.current_path_index])
+        # 정규화 (0-1 범위로)
+        if np.max(entropy) > 0:
+            entropy = entropy / np.max(entropy)
+            
+        self.entropy_map = entropy
+        return entropy
         
-        print(f"Path control - current: {current_pos}, target: {target_pos}, distance: {np.linalg.norm(target_pos - current_pos)}, index: {self.current_path_index}/{len(path)}")
-
-        # Determine if this is the final waypoint in the path
-        is_final_waypoint = (self.current_path_index == len(path) - 1)
+    def find_frontiers(self):
+        """
+        Find and cluster frontier cells between known free space and unknown space
+        탐색 경계(프론티어)를 찾아 군집화
         
-        # Use different distance thresholds for final waypoint vs. intermediate waypoints
-        dist_threshold = self.goal_reached_dist if is_final_waypoint else self.waypoint_reached_dist
+        Returns:
+            list: List of frontier clusters, each cluster is a list of (y, x) coordinates
+        """
+        if self.occupancy_grid is None:
+            return []
+            
+        # 자유 공간(< 50)과 미지 공간(= -1) 식별
+        free_cells = (self.occupancy_grid < 50) & (self.occupancy_grid >= 0)
+        unknown_cells = self.occupancy_grid == -1
         
-        print(f"Is final waypoint: {is_final_waypoint}, threshold: {dist_threshold}")
-
-        # reached target point
-        if np.linalg.norm(target_pos - current_pos) < dist_threshold:
-            # If this is the final waypoint, mark it
-            if is_final_waypoint:
-                if not self.final_goal_reached:
-                    self.final_goal_reached = True
-                    self.goal_reached_time = time.time()
-                    print(f"Final goal reached at: {target_pos}, time: {self.goal_reached_time}")
+        # 미지 공간 팽창
+        kernel = np.ones((3, 3))
+        dilated_unknown = binary_dilation(unknown_cells, kernel)
+        
+        # 프론티어 셀 = 자유 공간 + 팽창된 미지 공간 경계
+        frontier_cells = free_cells & dilated_unknown
+        
+        # 프론티어 셀 좌표 추출
+        frontier_coords = np.argwhere(frontier_cells)
+        
+        if len(frontier_coords) == 0:
+            return []
+        
+        # DBSCAN으로 프론티어 셀 군집화
+        try:
+            clustering = DBSCAN(eps=3, min_samples=self.min_frontier_size).fit(frontier_coords)
+            labels = clustering.labels_
+            
+            # 군집별로 프론티어 셀 분류
+            frontier_clusters = []
+            for label in np.unique(labels):
+                if label != -1:  # 노이즈 포인트 제외
+                    cluster = frontier_coords[labels == label]
+                    if len(cluster) >= self.min_frontier_size:
+                        frontier_clusters.append(cluster)
+            
+            return frontier_clusters
+        except Exception as e:
+            print(f"프론티어 군집화 오류: {e}")
+            # 오류 발생 시 각 좌표를 개별 군집으로 처리
+            if len(frontier_coords) > self.min_frontier_size:
+                return [frontier_coords]
+            return []
+    
+    def calculate_information_gain(self, frontier_cluster):
+        """
+        Calculate expected information gain for a frontier cluster
+        프론티어 군집에 대한 예상 정보 획득량 계산
+        
+        Args:
+            frontier_cluster (numpy.ndarray): Array of (y, x) coordinates of frontier points
+            
+        Returns:
+            tuple: (information_gain, center_point)
+        """
+        # 프론티어 군집의 중심점 계산
+        center = np.mean(frontier_cluster, axis=0).astype(int)
+        
+        # 로봇에서 프론티어까지의 거리 계산
+        robot_grid_x, robot_grid_y = self.world_to_grid(self.current_pos[0], self.current_pos[1])
+        distance = np.linalg.norm(np.array([robot_grid_y, robot_grid_x]) - center)
+        
+        # 이 프론티어에서 볼 수 있는 미지 셀 수 추정
+        visible_unknown = self.estimate_visible_unknown(center)
+        
+        # 여유 공간(장애물까지의 거리) 계산
+        clearance = self.calculate_clearance(center)
+        
+        # 여유 공간과 미지 셀 수를 고려한 정보 획득량
+        # (중요도: 미지 셀 > 여유 공간 > 거리)
+        visible_weight = 1.0
+        clearance_weight = 0.5
+        distance_weight = -0.3  # 거리가 멀수록 불리
+        
+        # 모든 값을 0-1 범위로 정규화
+        norm_visible = min(1.0, visible_unknown / 100)  # 100개 미지 셀을 최대로 가정
+        norm_clearance = min(1.0, clearance / 10)  # 10칸의 여유를 최대로 가정
+        norm_distance = 1.0 - min(1.0, distance / (self.sensor_range / self.map_resolution))
+        
+        # 총 점수 계산
+        gain = (norm_visible * visible_weight + 
+                norm_clearance * clearance_weight + 
+                norm_distance * distance_weight)
+        
+        # 중심점 그리드 좌표를 월드 좌표로 변환
+        center_world_x, center_world_y = self.grid_to_world(center[1], center[0])
+        
+        return gain, np.array([center_world_x, center_world_y])
+    
+    def estimate_visible_unknown(self, point):
+        """
+        Estimate the number of unknown cells visible from a point
+        주어진 점에서 볼 수 있는 미지 셀의 수 추정
+        
+        Args:
+            point (numpy.ndarray): (y, x) grid coordinates
+            
+        Returns:
+            int: Number of estimated visible unknown cells
+        """
+        y, x = point
+        h, w = self.occupancy_grid.shape
+        
+        # 센서 범위를 그리드 단위로 변환
+        sensor_radius = int(self.sensor_range / self.map_resolution)
+        
+        # 범위 내 좌표 생성
+        y_grid, x_grid = np.ogrid[-sensor_radius:sensor_radius+1, 
+                                -sensor_radius:sensor_radius+1]
+        
+        # 원형 마스크 생성
+        mask = x_grid**2 + y_grid**2 <= sensor_radius**2
+        
+        # 바운드 적용
+        y_min = max(0, y - sensor_radius)
+        y_max = min(h, y + sensor_radius + 1)
+        x_min = max(0, x - sensor_radius)
+        x_max = min(w, x + sensor_radius + 1)
+        
+        # 마스크 크기 조정
+        mask_y_min = max(0, sensor_radius - y)
+        mask_y_max = mask_y_min + (y_max - y_min)
+        mask_x_min = max(0, sensor_radius - x)
+        mask_x_max = mask_x_min + (x_max - x_min)
+        
+        mask_bounded = mask[mask_y_min:mask_y_max, mask_x_min:mask_x_max]
+        
+        # 영역 내 점유도 값 추출
+        region = self.occupancy_grid[y_min:y_max, x_min:x_max]
+        
+        # 마스크 적용 및 미지 셀 카운트
+        if region.shape[0] > 0 and region.shape[1] > 0 and mask_bounded.shape[0] > 0 and mask_bounded.shape[1] > 0:
+            # 미지 셀 (-1) 카운트
+            unknown_count = np.sum((region == -1) & mask_bounded)
+            return unknown_count
+        
+        return 0
+    
+    def calculate_clearance(self, point):
+        """
+        Calculate the clearance (distance to nearest obstacle) for a point
+        주어진 점에서 가장 가까운 장애물까지의 거리 계산
+        
+        Args:
+            point (numpy.ndarray): (y, x) grid coordinates
+            
+        Returns:
+            float: Distance to nearest obstacle in grid cells
+        """
+        y, x = point
+        h, w = self.occupancy_grid.shape
+        
+        # 탐색 반경 (그리드 셀 단위)
+        search_radius = 10
+        
+        # 바운드 적용
+        y_min = max(0, y - search_radius)
+        y_max = min(h, y + search_radius + 1)
+        x_min = max(0, x - search_radius)
+        x_max = min(w, x + search_radius + 1)
+        
+        # 영역 추출
+        region = self.occupancy_grid[y_min:y_max, x_min:x_max]
+        
+        # 장애물 셀 (점유도 >= 50) 식별
+        obstacle_cells = region >= 50
+        
+        if not np.any(obstacle_cells):
+            return search_radius
+        
+        # 장애물 셀 좌표 추출
+        obstacle_coords = np.argwhere(obstacle_cells)
+        
+        # 중심점에 상대적인 좌표로 변환
+        point_rel = np.array([y - y_min, x - x_min])
+        
+        # 거리 계산
+        distances = np.sqrt(np.sum((obstacle_coords - point_rel)**2, axis=1))
+        
+        # 최소 거리 반환
+        min_distance = np.min(distances) if len(distances) > 0 else search_radius
+        return min_distance
+        
+    def select_frontier_goal(self):
+        """
+        Select the next goal point based on frontier information gain
+        프론티어 정보 획득량에 기반한 다음 목표점 선택
+        
+        Returns:
+            numpy.ndarray or None: Selected goal point [x, y] in world coordinates, or None if no valid goal
+        """
+        # 프론티어 찾기
+        frontier_clusters = self.find_frontiers()
+        
+        if not frontier_clusters:
+            print("더 이상 프론티어가 없습니다. 탐험 완료.")
+            self.exploration_complete = True
+            return None
+        
+        # 각 프론티어 군집에 대한 정보 획득량 계산
+        gains_and_centers = []
+        for cluster in frontier_clusters:
+            gain, center = self.calculate_information_gain(cluster)
+            # 이미 방문한 영역이나 금지된 방향은 제외
+            if not self.is_previously_visited(center) and not self.is_forbidden_direction(center):
+                gains_and_centers.append((gain, center))
+        
+        if not gains_and_centers:
+            print("유효한 프론티어 목표가 없습니다.")
+            return None
+        
+        # 정보 획득량 내림차순 정렬
+        gains_and_centers.sort(key=lambda x: x[0], reverse=True)
+        
+        # 정보 획득량이 가장 높은 프론티어 중심 반환
+        best_gain, best_center = gains_and_centers[0]
+        print(f"선택된 프론티어 목표: {best_center}, 정보 획득량: {best_gain}")
+        
+        return best_center
+    
+    def adjust_toward_corridor_center(self, waypoint):
+        """
+        Adjust a waypoint toward the center of the corridor
+        경로 상의 웨이포인트를 코리도 중심으로 조정
+        
+        Args:
+            waypoint (numpy.ndarray): Waypoint [x, y] in world coordinates
+            
+        Returns:
+            numpy.ndarray: Adjusted waypoint [x, y] in world coordinates
+        """
+        # 월드 좌표를 그리드 좌표로 변환
+        grid_x, grid_y = self.world_to_grid(waypoint[0], waypoint[1])
+        
+        # 8방향으로 장애물까지의 거리 계산
+        directions = [
+            (-1, 0), (1, 0), (0, -1), (0, 1),  # 상하좌우
+            (-1, -1), (-1, 1), (1, -1), (1, 1)  # 대각선
+        ]
+        
+        distances = []
+        for dy, dx in directions:
+            dist = 0
+            while True:
+                ny, nx = grid_y + dy * dist, grid_x + dx * dist
                 
-                # If we're at the final goal, slow down more significantly
-                slow_factor = 0.5
-                error = target_pos - current_pos
-                d_error = (error - self.prev_error) / dt if dt > 0 else np.array([0.0, 0.0])
-                self.prev_error = error.copy()
-                control_input = self.pd_p_gain * error * slow_factor + self.pd_d_gain * d_error * slow_factor
+                # 바운드 체크
+                if not (0 <= ny < self.grid_height and 0 <= nx < self.grid_width):
+                    break
                 
-                # Ensure minimum control to maintain position
-                control_norm = np.linalg.norm(control_input)
-                if control_norm < 0.05:  # Very small control
-                    print(f"Very small control at goal: {control_input}, setting to zero")
-                    control_input = np.array([0.0, 0.0])  # Just stop
+                # 장애물 체크 (점유도 >= 50)
+                if self.occupancy_grid[ny, nx] >= 50:
+                    break
                 
-                self.last_control = control_input.copy()
-                return control_input
-            else:
-                # Move to next waypoint in the path
-                self.current_path_index += 1
-                # Reset the goal reached flag when starting to move to a new waypoint
-                self.final_goal_reached = False
-                self.goal_reached_time = None
+                dist += 1
                 
-                # Update target to the new waypoint
-                if self.current_path_index < len(path):
-                    target_pos = np.array(path[self.current_path_index])
-                    print(f"Moving to next waypoint: {target_pos}, index: {self.current_path_index}")
-                else:
-                    self.current_path_index = len(path) - 1
-                    print("Reached end of path, stopping")
-                    return np.array([0.0, 0.0])
+                # 탐색 거리 제한
+                if dist > 15:
+                    break
+            
+            distances.append(dist)
         
-        # Regular controller logic for following the path
-        error = target_pos - current_pos
-
-        d_error = (error - self.prev_error) / dt if dt > 0 else np.array([0.0, 0.0])
-        self.prev_error = error.copy()
-
-        # pd control 
-        control_input = self.pd_p_gain * error + self.pd_d_gain * d_error
+        # 코리도 중심 방향 벡터 계산
+        direction_vector = np.zeros(2)
+        for i, (dy, dx) in enumerate(directions):
+            # 거리가 짧을수록 더 강한 힘을 적용
+            if distances[i] > 0:
+                force = 1.0 / distances[i]
+                direction_vector[0] += dy * force
+                direction_vector[1] += dx * force
         
-        print(f"PD control: p_gain={self.pd_p_gain}, d_gain={self.pd_d_gain}")
-        print(f"Error: {error}, d_error: {d_error}")
-        print(f"Raw control: {control_input}")
-
-        # control input clipping 
-        max_speed = 5.0  # 증가된 최대 속도
-        control_norm = np.linalg.norm(control_input)
-
-        if control_norm > max_speed:
-            control_input = control_input / control_norm * max_speed
-            print(f"Control clipped to: {control_input}")
+        # 정규화 및 반전 (장애물로부터 멀어지는 방향)
+        if np.linalg.norm(direction_vector) > 0:
+            direction_vector = -direction_vector / np.linalg.norm(direction_vector)
+            
+            # 조정 적용 (최대 2칸)
+            adjustment = np.clip(direction_vector * 2, -2, 2)
+            adjusted_y = int(grid_y + adjustment[0])
+            adjusted_x = int(grid_x + adjustment[1])
+            
+            # 조정된 좌표가 유효한지 확인
+            if (0 <= adjusted_y < self.grid_height and 
+                0 <= adjusted_x < self.grid_width and 
+                self.occupancy_grid[adjusted_y, adjusted_x] < 50):
+                # 그리드 좌표를 월드 좌표로 변환
+                world_x, world_y = self.grid_to_world(adjusted_x, adjusted_y)
+                return np.array([world_x, world_y])
         
-        # 최소 제어 입력 설정 - 로봇이 너무 천천히 움직이지 않도록
-        min_control_norm = 0.2  # 최소 제어 입력 크기
-        if 0 < control_norm < min_control_norm:
-            control_input = control_input / control_norm * min_control_norm
-            print(f"Control boosted to minimum: {control_input}")
-
-        self.last_control = control_input.copy()
-        print(f"Final control output: {control_input}, norm: {np.linalg.norm(control_input)}")
-
-        return control_input
-       
+        # 조정이 불가능하면 원래 웨이포인트 반환
+        return waypoint
+        
+    def compute_exploration_coverage(self):
+        """
+        Calculate exploration coverage and determine if exploration is complete
+        탐험 커버리지를 계산하고 탐험 완료 여부 결정
+        
+        Returns:
+            tuple: (explored_percent, is_complete, reason)
+        """
+        if self.occupancy_grid is None:
+            return 0.0, False, "맵이 없음"
+            
+        # 알려진 셀 (자유 공간 또는 장애물)
+        known_cells = np.sum((self.occupancy_grid < 50) & (self.occupancy_grid >= 0) | (self.occupancy_grid >= 50))
+        
+        # 전체 셀 수 (패딩/외부 영역 제외)
+        unknown_cells = np.sum(self.occupancy_grid == -1)
+        total_cells = known_cells + unknown_cells
+        
+        # 패딩/외부 영역이 많으면 총 셀 수를 추정
+        if total_cells < 100:
+            total_cells = self.grid_width * self.grid_height
+            
+        # 탐험 퍼센트 계산
+        explored_percent = (known_cells / total_cells) if total_cells > 0 else 1.0
+        
+        # 자유 공간과 장애물 비율 계산
+        free_cells = np.sum((self.occupancy_grid < 50) & (self.occupancy_grid >= 0))
+        occupied_cells = np.sum(self.occupancy_grid >= 50)
+        free_space_ratio = free_cells / (free_cells + occupied_cells) if (free_cells + occupied_cells) > 0 else 0.5
+        
+        # 경계 맵 생성 및 경계 밀도 계산
+        entropy_map = self.calculate_entropy_map()
+        boundary_map = self.detect_exploration_boundary(entropy_map)
+        boundary_cells = np.sum(boundary_map > 0.3)
+        boundary_density = boundary_cells / total_cells if total_cells > 0 else 0.0
+        
+        # 탐험 완료 조건 검사
+        is_complete = False
+        reason = ""
+        
+        # 탐험 퍼센트가 임계값 이상
+        if explored_percent >= self.coverage_threshold:
+            is_complete = True
+            reason = f"탐험 커버리지 {explored_percent:.1%}가 임계값 {self.coverage_threshold:.1%} 이상"
+        
+        # 경계 밀도가 매우 낮음 (더 이상 탐험할 경계가 거의 없음)
+        elif boundary_density < 0.01:
+            is_complete = True
+            reason = f"경계 밀도 {boundary_density:.1%}가 매우 낮음"
+        
+        # 자유 공간 비율이 비정상적 (대부분 벽이거나 모두 자유 공간)
+        elif free_space_ratio < 0.05 or free_space_ratio > 0.95:
+            is_complete = True
+            reason = f"자유 공간 비율 {free_space_ratio:.1%}가 비정상적"
+        
+        # 프론티어가 없음
+        elif not self.find_frontiers():
+            is_complete = True
+            reason = "더 이상 탐험할 프론티어가 없음"
+            
+        # 상세 통계 출력
+        print(f"탐험 통계 - 총 셀: {total_cells}, 알려진 셀: {known_cells}, 미지 셀: {unknown_cells}")
+        print(f"탐험 커버리지: {explored_percent:.1%}, 자유 공간 비율: {free_space_ratio:.1%}")
+        print(f"경계 밀도: {boundary_density:.1%}, 완료 여부: {is_complete}, 이유: {reason}")
+        
+        self.exploration_complete = is_complete
+        return explored_percent, is_complete, reason
+        
+    def improved_select_goal_point(self):
+        """
+        Advanced goal point selection using frontier-based exploration
+        프론티어 기반 탐험을 사용한 고급 목표점 선택
+        
+        Returns:
+            tuple or None: (x, y) goal point in world coordinates, or None if exploration is complete
+        """
+        # 탐험 커버리지 계산 및 완료 여부 확인
+        _, is_complete, reason = self.compute_exploration_coverage()
+        
+        if is_complete:
+            print(f"탐험 완료: {reason}")
+            self.exploration_complete = True
+            return None
+            
+        # 프론티어 기반으로 목표점 선택
+        goal = self.select_frontier_goal()
+        
+        # 프론티어가 없으면 엔트로피 기반 목표점 선택으로 폴백
+        if goal is None:
+            print("프론티어 기반 목표점 선택 실패. 엔트로피 기반 방법으로 전환.")
+            return self.select_goal_point()
+            
+        return goal[0], goal[1]
 
     def plan_and_control(self, dt):
         """
-        Path planning and control input calculation
+        Plan path and compute control to follow the path
         
         Args:
-            dt (float): Time interval
-            
+            dt (float): Time interval for control computation
+        
         Returns:
-            tuple: (control_input, goal_point, path)
-                - control_input: Velocity command [vx, vy]
-                - goal_point: Current goal point
-                - path: Planned path
+            tuple: (control, goal_point, current_path)
+                control (numpy.ndarray): Control input [vx, vy]
+                goal_point (numpy.ndarray): Goal point [x, y]
+                current_path (list): Current path [[x1, y1], [x2, y2], ...]
         """
-        if self.occupancy_grid is None:
-            return None, None, None
+        current_time = time.time()
         
-        # Define replanning conditions
-        need_new_plan = (
-            self.current_path is None or  # No path exists
-            len(self.current_path) == 0 or  # Empty path
-            (  # Regular replanning condition with timing
-                time.time() - self.planning_time > self.min_replan_time and  # Minimum replanning time passed
-                not self.final_goal_reached  # Not at the final goal
-            ) or
-            (  # Final goal reached and dwell time passed
-                self.final_goal_reached and
-                self.goal_reached_time is not None and
-                time.time() - self.goal_reached_time > self.goal_dwell_time
-            )
-        )
+        # Check if we're already planning
+        if self.is_planning:
+            # Check if we've had a path for a while 
+            if self.current_path is not None and len(self.current_path) > 0:
+                # Use the existing path for control
+                control = self.compute_control(self.current_pos, self.current_path, dt)
+                goal_point = np.array([self.current_path[-1][0], self.current_path[-1][1]])
+                return control, goal_point, self.current_path
+            else:
+                # No path yet, just return the previous control
+                return self.last_control, None, None
         
-        # If new plan is needed
-        if need_new_plan:
-            # If it is already planning, keep previous control
-            if self.is_planning:
-                goal_point = np.array([self.current_path[-1][0], self.current_path[-1][1]]) if self.current_path and len(self.current_path) > 0 else None
-                return self.last_control, goal_point, self.current_path
+        # If we've just reached the goal and need to wait
+        if self.goal_reached_time is not None:
+            dwell_time = current_time - self.goal_reached_time
+            if dwell_time < self.goal_dwell_time:
+                # Still in dwell time at goal, don't replan yet
+                print(f"In goal dwell time. Remaining: {self.goal_dwell_time - dwell_time:.1f}s")
+                return np.array([0.0, 0.0]), self.current_path[-1] if self.current_path and len(self.current_path) > 0 else None, self.current_path
+        
+        # Check if it's too soon to replan
+        time_since_planning = current_time - self.planning_time
+        if time_since_planning < self.min_replan_time and self.current_path is not None and len(self.current_path) > 0:
+            print(f"Too soon to replan. Time since last plan: {time_since_planning:.1f}s")
+            control = self.compute_control(self.current_pos, self.current_path, dt)
+            goal_point = np.array([self.current_path[-1][0], self.current_path[-1][1]])
+            return control, goal_point, self.current_path
             
-            # Reset goal reached flags
-            self.final_goal_reached = False
-            self.goal_reached_time = None
+        # Start planning
+        self.is_planning = True
+        self.planning_time = current_time
+        
+        try:
+            # Compute exploration coverage
+            coverage, is_complete, reason = self.compute_exploration_coverage()
             
-            # Select new goal point
-            goal_x, goal_y = self.select_goal_point()
+            # Check if exploration is complete
+            if is_complete:
+                print(f"Exploration complete: {reason}")
+                self.is_planning = False
+                return np.array([0.0, 0.0]), None, None
+            
+            # Select new goal point using the improved method
+            goal_x, goal_y = self.improved_select_goal_point()
             if goal_x is None or goal_y is None:
-                return None, None, None
+                print("No goal point available.")
+                self.is_planning = False
+                return np.array([0.0, 0.0]), None, None
+                
+            goal_point = np.array([goal_x, goal_y])
             
-            goal_pos = np.array([goal_x, goal_y])
-            print(f"New goal point: {goal_pos}, planning time: {time.time()}")
-
-            # path planner using RRT
-            path = self.rrt_planning(self.current_pos, goal_pos)
-
-            if path is None:
-                return self.last_control, goal_pos, []
-
-            self.current_path = path
-            self.current_path_index = 0
-            self.planning_time = time.time()
-
-            control = self.compute_control(self.current_pos, self.current_path, dt)
-        else:
-            # Continue with existing path
-            control = self.compute_control(self.current_pos, self.current_path, dt)
-        
-        goal_point = np.array([self.current_path[-1][0], self.current_path[-1][1]]) if self.current_path and len(self.current_path) > 0 else None
-        return control, goal_point, self.current_path
+            # Monitor current goal approach
+            if self.monitor_path_execution():
+                # Path execution is stuck, clear current path
+                self.current_path = None
+                self.current_path_index = 0
+                print("Path execution detected as stuck. Replanning...")
+                
+            # Check if existing path is still valid
+            reuse_path = False
+            if self.current_path is not None and len(self.current_path) > 0:
+                current_goal = self.current_path[-1]
+                if (np.linalg.norm(np.array(current_goal) - goal_point) < 0.5 and 
+                    not self.check_path_collision(self.current_pos[0], self.current_pos[1], current_goal[0], current_goal[1])):
+                    print("Current path is still valid. Reusing.")
+                    reuse_path = True
             
-    def compute_exploration_coverage(self):
-        """
-        Compute the percentage of the map that has been explored
-        
-        Returns:
-            float: Percentage of explored area (0.0 to 1.0)
-            bool: True if exploration is considered complete
-        """
-        if self.occupancy_grid is None:
-            return 0.0, False
-        
-        # Count cells
-        total_cells = self.grid_width * self.grid_height
-        unknown_cells = np.sum(self.occupancy_grid == -1)
-        occupied_cells = np.sum(self.occupancy_grid >= 50)
-        free_cells = np.sum((self.occupancy_grid >= 0) & (self.occupancy_grid < 50))
-        
-        # Calculate exploration percentage
-        explored_percent = 1.0 - (unknown_cells / total_cells)
-        
-        # Check boundary conditions
-        boundary_map = self.detect_exploration_boundary(self.generate_entropy_map())
-        boundary_count = np.sum(boundary_map > 0.3)
-        
-        # Calculate coverage metrics
-        free_space_ratio = free_cells / (free_cells + occupied_cells) if (free_cells + occupied_cells) > 0 else 0
-        boundary_density = boundary_count / total_cells
-        
-        print(f"Exploration stats:")
-        print(f"- Total cells: {total_cells}")
-        print(f"- Unknown cells: {unknown_cells}")
-        print(f"- Occupied cells: {occupied_cells}")
-        print(f"- Free cells: {free_cells}")
-        print(f"- Explored percentage: {explored_percent*100:.1f}%")
-        print(f"- Free space ratio: {free_space_ratio*100:.1f}%")
-        print(f"- Boundary density: {boundary_density*100:.1f}%")
-        
-        # Exploration is complete if:
-        # 1. High exploration percentage (>95%)
-        # 2. Low boundary density (<0.1%)
-        # 3. Reasonable free space ratio (20-80%)
-        is_complete = (
-            explored_percent > 0.95 and  # Most of the map is explored
-            boundary_density < 0.001 and  # Few exploration boundaries
-            0.2 <= free_space_ratio <= 0.8  # Reasonable mix of free and occupied space
-        )
-        
-        if is_complete:
-            print("Exploration complete! All criteria met.")
-        else:
-            print("Exploration incomplete:")
-            if explored_percent <= 0.95:
-                print("- Not enough area explored")
-            if boundary_density >= 0.001:
-                print("- Too many exploration boundaries")
-            if free_space_ratio < 0.2 or free_space_ratio > 0.8:
-                print("- Unreasonable free space ratio")
-        
-        return explored_percent, is_complete
-        
+            if not reuse_path:
+                # Plan new path
+                print(f"Planning path from {self.current_pos} to {goal_point}")
+                path = self.plan_path(self.current_pos[0], self.current_pos[1], goal_point[0], goal_point[1])
+                
+                if path is None or len(path) == 0:
+                    print("Path planning failed. Using direct path.")
+                    path = [[self.current_pos[0], self.current_pos[1]], [goal_point[0], goal_point[1]]]
+                
+                # Apply path optimization with corridor center preference
+                path = self.optimize_path(path)
+                
+                self.current_path = path
+                self.current_path_index = 0
+            
+            # Compute control for the path
+            control = self.compute_control(self.current_pos, self.current_path, dt)
+            
+            # Planning complete
+            self.is_planning = False
+            
+            # Reset goal reached time if we're planning a new path
+            self.goal_reached_time = None
+            self.final_goal_reached = False
+            
+            # Return control, goal point, and path
+            goal_point = np.array([self.current_path[-1][0], self.current_path[-1][1]])
+            return control, goal_point, self.current_path
+            
+        except Exception as e:
+            print(f"Error in planning: {str(e)}")
+            self.is_planning = False
+            # In case of error, return last control
+            return self.last_control, None, None
+            
