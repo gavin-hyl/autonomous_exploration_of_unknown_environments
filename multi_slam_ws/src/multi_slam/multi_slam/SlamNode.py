@@ -271,15 +271,15 @@ class SLAMNode(Node):
                    
             # Bigger scale
             uncertainty = np.sqrt(np.linalg.det(beacon_cov))
-            scale = max(0.75, min(2.0, uncertainty * 2.0))
+            scale = max(0.25, min(1.25, uncertainty * 1.25))
             marker.scale.x = scale
             marker.scale.y = scale
             marker.scale.z = scale
             
             # Maroon
-            marker.color.r = 0.69
-            marker.color.g = 0.19
-            marker.color.b = 0.38
+            marker.color.r = 0.8
+            marker.color.g = 0.10
+            marker.color.b = 0.0
             marker.color.a = 1.0  # Opaque
             
             marker_array.markers.append(marker)
@@ -312,9 +312,9 @@ class SLAMNode(Node):
             marker.scale.z = scale
             
             # Deep Burgundy
-            marker.color.r = 0.5
-            marker.color.g = 0.0
-            marker.color.b = 0.2
+            marker.color.r = 0.0
+            marker.color.g = 0.25
+            marker.color.b = 0.5
             marker.color.a = 1.0
             
             marker_array.markers.append(marker)
