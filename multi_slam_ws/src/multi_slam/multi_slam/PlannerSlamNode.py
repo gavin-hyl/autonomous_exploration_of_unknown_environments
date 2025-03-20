@@ -205,7 +205,8 @@ class PlannerSLAMNode(Node):
             robot_cov=self.position_cov,
             lidar_data=self.lidar_data,
             lidar_range=self.lidar_range,
-            beacon_data=self.beacon_data
+            beacon_data=self.beacon_data,
+            beacon_particles=beacon_particles
         )
         
         self.get_logger().info("Updated map.")
