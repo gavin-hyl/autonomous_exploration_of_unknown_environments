@@ -106,7 +106,6 @@ class SLAMNode(Node):
         self.position_particles_pub = self.create_publisher(PointCloud2, "/particles", 10)
         self.beacon_particles_pub = self.create_publisher(MarkerArray, "/beacon_particles", 1)
         self.total_beacon_particles_pub = self.create_publisher(MarkerArray, "/total_beacon_particles", 10)
-        self.average_beacon_particles_pub = self.create_publisher(PointCloud2, "/average_beacon_particles", 10)
         self.slam_done_pub = self.create_publisher(Bool, "/slam_done", 10)
         self.pose_pub = self.create_publisher(Marker, "/pos_hat_viz", 10)
         self.map_pub = self.create_publisher(OccupancyGrid, "/occupancy_grid", 10)
@@ -272,7 +271,7 @@ class SLAMNode(Node):
                    
             # Bigger scale
             uncertainty = np.sqrt(np.linalg.det(beacon_cov))
-            scale = max(0.25, min(1.5, uncertainty * 1.5))
+            scale = max(0.75, min(2.0, uncertainty * 2.0))
             marker.scale.x = scale
             marker.scale.y = scale
             marker.scale.z = scale
