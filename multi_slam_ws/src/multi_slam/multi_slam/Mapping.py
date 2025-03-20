@@ -270,18 +270,12 @@ class Mapping:
                    for v in range(int(ys), int(ye), int(np.sign(ye-ys)))]
 
     def _coord_to_grid(self, x, y):
-        """
-        Convert world coordinates to grid indices.
-
-        Args:
-            x (float): world x coordinate.
-            y (float): world y coordinate.
-
-        Returns:
-            (int, int): Corresponding grid indices.
-        """
+        """Convert world coordinates to grid coordinates"""
         grid_x = int((x - self.map_origin[0]) / self.grid_size)
         grid_y = int((y - self.map_origin[1]) / self.grid_size)
+        # 그리드 인덱스가 범위를 벗어나지 않도록 제한
+        grid_x = np.clip(grid_x, 0, self.grid_width - 1)
+        grid_y = np.clip(grid_y, 0, self.grid_height - 1)
         return grid_x, grid_y
 
     def _grid_to_coord(self, x, y):

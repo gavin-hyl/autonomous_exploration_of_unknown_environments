@@ -184,94 +184,94 @@ class Map:
         return beacon_positions
 
 
-# MAP = Map(-10, -10, 10, 10)
+MAP = Map(-10, -10, 10, 10)
 
-# for x in [-8.75, 0, 8.75]:
-#     for y in [-8.75, 0, 8.75]:
-#         # if x == 0 and y == 0:
-#         #     continue
-#         MAP._add_beacon(Point(x, y))
+for x in [-8.75, 0, 8.75]:
+    for y in [-8.75, 0, 8.75]:
+        # if x == 0 and y == 0:
+        #     continue
+        MAP._add_beacon(Point(x, y))
 
-# for center_x in [-4, 4]:
-#     for center_y in [-4, 4]:
-#         radius = 2.5
-#         MAP._add_obstacle(Polygon([
-#             (center_x - radius, center_y - radius),
-#             (center_x + radius, center_y - radius),
-#             (center_x + radius, center_y + radius),
-#             (center_x - radius, center_y + radius)
-#         ]))
+for center_x in [-4, 4]:
+    for center_y in [-4, 4]:
+        radius = 2.5
+        MAP._add_obstacle(Polygon([
+            (center_x - radius, center_y - radius),
+            (center_x + radius, center_y - radius),
+            (center_x + radius, center_y + radius),
+            (center_x - radius, center_y + radius)
+        ]))
 
 
-MAP = Map(-15, -15, 15, 15)
+# MAP = Map(-15, -15, 15, 15)
 
-# Add a small number of beacons in asymmetric positions
-beacons = [
-    (12, -10),
-    (-7, 8),
-    (3, 13),
-    (-13, -5)
-]
+# # Add a small number of beacons in asymmetric positions
+# beacons = [
+#     (12, -10),
+#     (-7, 8),
+#     (3, 13),
+#     (-13, -5)
+# ]
 
-for x, y in beacons:
-    MAP._add_beacon(Point(x, y))
+# for x, y in beacons:
+#     MAP._add_beacon(Point(x, y))
 
-# Helper function to create circles (approximated by polygons)
-def create_circle(center_x, center_y, radius, num_points=24):
-    points = []
-    for i in range(num_points):
-        angle = 2 * math.pi * i / num_points
-        x = center_x + radius * math.cos(angle)
-        y = center_y + radius * math.sin(angle)
-        points.append((x, y))
-    return Polygon(points)
+# # Helper function to create circles (approximated by polygons)
+# def create_circle(center_x, center_y, radius, num_points=24):
+#     points = []
+#     for i in range(num_points):
+#         angle = 2 * math.pi * i / num_points
+#         x = center_x + radius * math.cos(angle)
+#         y = center_y + radius * math.sin(angle)
+#         points.append((x, y))
+#     return Polygon(points)
 
-# Add squares of different sizes in asymmetric positions
-squares = [
-    # (center_x, center_y, side_length)
-    (-9, -11, 3),
-    (6, -5, 4),
-    (11, 7, 2.5),
-    (-3, 10, 5),
-    (0, -7, 2),
-]
+# # Add squares of different sizes in asymmetric positions
+# squares = [
+#     # (center_x, center_y, side_length)
+#     (-9, -11, 3),
+#     (6, -5, 4),
+#     (11, 7, 2.5),
+#     (-3, 10, 5),
+#     (0, -7, 2),
+# ]
 
-for cx, cy, side in squares:
-    half_side = side / 2
-    MAP._add_obstacle(Polygon([
-        (cx - half_side, cy - half_side),
-        (cx + half_side, cy - half_side),
-        (cx + half_side, cy + half_side),
-        (cx - half_side, cy + half_side)
-    ]))
+# for cx, cy, side in squares:
+#     half_side = side / 2
+#     MAP._add_obstacle(Polygon([
+#         (cx - half_side, cy - half_side),
+#         (cx + half_side, cy - half_side),
+#         (cx + half_side, cy + half_side),
+#         (cx - half_side, cy + half_side)
+#     ]))
 
-# Add triangles with different orientations
-triangles = [
-    # Each tuple contains three (x,y) vertex coordinates
-    [(-12, 0), (-8, 0), (-10, 4)],
-    [(2, 0), (8, 1), (5, 6)],
-    [(0, -13), (5, -10), (-2, -9)],
-]
+# # Add triangles with different orientations
+# triangles = [
+#     # Each tuple contains three (x,y) vertex coordinates
+#     [(-12, 0), (-8, 0), (-10, 4)],
+#     [(2, 0), (8, 1), (5, 6)],
+#     [(0, -13), (5, -10), (-2, -9)],
+# ]
 
-for vertices in triangles:
-    MAP._add_obstacle(Polygon(vertices))
+# for vertices in triangles:
+#     MAP._add_obstacle(Polygon(vertices))
 
-# Add circles of different sizes
-circles = [
-    # (center_x, center_y, radius)
-    (3, 3, 2.7),
-    (-5, -3, 2),
-    (-1, 6, 1.5),
-    (7, 12, 2.3),
-    (13, -1, 1.8),
-]
+# # Add circles of different sizes
+# circles = [
+#     # (center_x, center_y, radius)
+#     (3, 3, 2.7),
+#     (-5, -3, 2),
+#     (-1, 6, 1.5),
+#     (7, 12, 2.3),
+#     (13, -1, 1.8),
+# ]
 
-for cx, cy, radius in circles:
-    MAP._add_obstacle(create_circle(cx, cy, radius))
+# for cx, cy, radius in circles:
+#     MAP._add_obstacle(create_circle(cx, cy, radius))
 
-# Add one complex polygon
-MAP._add_obstacle(Polygon([
-    (-5, 13), (-3, 11), (0, 12), (1, 10),
-    (3, 11), (1, 8), (-2, 9), (-4, 7),
-    (-7, 10), (-6, 12)
-]))
+# # Add one complex polygon
+# MAP._add_obstacle(Polygon([
+#     (-5, 13), (-3, 11), (0, 12), (1, 10),
+#     (3, 11), (1, 8), (-2, 9), (-4, 7),
+#     (-7, 10), (-6, 12)
+# ]))

@@ -84,7 +84,7 @@ class SLAMNode(Node):
         self.pos_hat_new = np.array([0.0, 0.0, 0.0])
         self.particles = None
         self.sim_done = True
-
+        
         # Subscribers
         self.create_subscription(
             PointCloud2, "/lidar", self.lidar_callback, 10
