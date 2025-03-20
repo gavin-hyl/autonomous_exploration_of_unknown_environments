@@ -66,30 +66,26 @@ class Localization:
         self.beacon_particles = beacon_particles
         return particles, cov, beacon_particles
 
-    def calculate_score(self, particle, beacon_data, estimated_map):
+    def calculate_score(self, particle, beacon_data, estimated_map, compare_with_beacon_particles=False):
+        """Calculate score for a particle based on how well measured beacons match known beacons"""
         score = 0 
 
-        # Check beacons in batch rather than one at a time
+        # Calculate global positions of beacons from this particle's perspective
         global_beacons = [particle + beacon for beacon in beacon_data]
         
-        # Use numpy operations for faster calculations
+        # Calculate score for each beacon
         for global_beacon in global_beacons:
-            # import sys
-            # print(global_beacon, file=sys.stderr)
-            # # Sample fewer points along the line
-            # print('before 2d line', file=sys.stderr)
-            # points = np.array(self.create_2d_line(particle[0:2], global_beacon[0:2]))
-            # print('after 2d line', file=sys.stderr)
+            # Find closest beacon in the map
+            closest_beacon, _, _ = estimated_map.get_closest_beacon(
+                global_beacon, 
+                compare_with_beacon_particles=compare_with_beacon_particles
+            )
             
-            # # Batch check occupancy
-            # occupancies = estimated_map.world_to_prob_batch(points)
-            # if np.any(occupancies > self.occupancy_threshold):
-            #     return -1e9
-            
-            closest_beacon, _, _ = estimated_map.get_closest_beacon(global_beacon)
+            # Penalize heavily if no matching beacon found
             if closest_beacon is None:
                 return -1e9
 
+            # Score is inversely proportional to squared distance
             score += np.clip(1 / (sum((closest_beacon - global_beacon) ** 2)), 0, 1e5)
         
         return score
