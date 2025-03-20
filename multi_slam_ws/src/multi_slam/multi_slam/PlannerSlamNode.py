@@ -185,7 +185,7 @@ class PlannerSLAMNode(Node):
         has completed a step.
         """
         # Localization
-        particles, cov = self.localization.update_position(
+        particles, cov, beacon_particles = self.localization.update_position(
             self.beacon_data,
             self.map
         )
@@ -197,6 +197,8 @@ class PlannerSLAMNode(Node):
         self.pos_hat_new = pos_hat_new
         self.position = self.pos_hat_new
         self.position_cov = cov
+        # 필요한 경우 beacon_particles 저장
+        self.beacon_particles = beacon_particles
         
         self.map.update(
             robot_pos=self.position,
