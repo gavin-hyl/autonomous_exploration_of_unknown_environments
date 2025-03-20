@@ -12,6 +12,7 @@ from sensor_msgs_py import point_cloud2
 from std_msgs.msg import Header, Bool
 from sensor_msgs_py.point_cloud2 import read_points
 from multi_slam.Planner import Planner
+from geometry_msgs.msg import Point
 
 
 class SLAMNode(Node):
@@ -102,11 +103,14 @@ class SLAMNode(Node):
         )
 
         # Publishers
-        self.particles_pub = self.create_publisher(PointCloud2, "particles", 10)
+        self.position_particles_pub = self.create_publisher(PointCloud2, "/particles", 10)
+        self.beacon_particles_pub = self.create_publisher(MarkerArray, "/beacon_particles", 1)
+        self.total_beacon_particles_pub = self.create_publisher(MarkerArray, "/total_beacon_particles", 10)
         self.slam_done_pub = self.create_publisher(Bool, "/slam_done", 10)
         self.pose_pub = self.create_publisher(Marker, "/pos_hat_viz", 10)
         self.map_pub = self.create_publisher(OccupancyGrid, "/occupancy_grid", 10)
         self.beacon_pub = self.create_publisher(MarkerArray, "/estimated_beacons", 10)
+        self.beacon_by_particle_pub = self.create_publisher(MarkerArray, "/estimated_beacons_by_particle", 10)
         
         # Timer for visualization
         self.create_timer(1, self.publish_viz)
@@ -121,7 +125,7 @@ class SLAMNode(Node):
         has completed a step.
         """
         # Localization
-        particles, cov = self.localization.update_position(
+        particles, cov, beacon_particles = self.localization.update_position(
             self.beacon_data,
             self.map
         )
@@ -139,7 +143,8 @@ class SLAMNode(Node):
             robot_cov=self.position_cov,
             lidar_data=self.lidar_data,
             lidar_range=self.lidar_range,
-            beacon_data=self.beacon_data
+            beacon_data=self.beacon_data,
+            beacon_particles=self.localization.beacon_particles
         )
         
         self.get_logger().info("Updated map.")
@@ -163,6 +168,10 @@ class SLAMNode(Node):
         self.publish_pos_viz()
         self.publish_map_viz()
         self.publish_beacons_viz()
+        self.publish_beacons_by_particle_viz()
+        self.publish_beacon_particles_viz()
+        self.publish_total_beacon_particles_viz()
+
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data."""
@@ -191,7 +200,7 @@ class SLAMNode(Node):
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = "map"
         particles_msg = point_cloud2.create_cloud_xyz32(header, particles)
-        self.particles_pub.publish(particles_msg)
+        self.position_particles_pub.publish(particles_msg)
 
     def publish_pos_viz(self):
         """Publish the estimated pose visualization marker."""
@@ -209,15 +218,15 @@ class SLAMNode(Node):
         marker.pose.position.z = 0.0
         
         # Scale
-        marker.scale.x = 0.3
-        marker.scale.y = 0.3
-        marker.scale.z = 0.3
+        marker.scale.x = 0.1
+        marker.scale.y = 0.1
+        marker.scale.z = 0.1
         
         # Color
         marker.color.r = 1.0
         marker.color.g = 0.0
         marker.color.b = 0.0
-        marker.color.a = 1.0
+        marker.color.a = 0.3
         
         self.pose_pub.publish(marker)
 
@@ -243,7 +252,7 @@ class SLAMNode(Node):
         self.map_pub.publish(msg)
 
     def publish_beacons_viz(self):
-        """Publish estimated beacon positions for visualization."""
+        """Publish estimated beacon positions of beacon particles for visualization."""
         marker_array = MarkerArray()
         
         for i, (beacon_pos, beacon_cov) in enumerate(zip(self.map.beacon_positions, self.map.beacon_covariances)):
@@ -258,24 +267,148 @@ class SLAMNode(Node):
             # Position
             marker.pose.position.x = beacon_pos[0]
             marker.pose.position.y = beacon_pos[1]
-            marker.pose.position.z = 0.0
-            
-            # Scale based on uncertainty
+            marker.pose.position.z = 0.1
+                   
+            # Bigger scale
             uncertainty = np.sqrt(np.linalg.det(beacon_cov))
-            scale = max(0.1, min(1.0, uncertainty))
+            scale = max(0.25, min(1.25, uncertainty * 1.25))
             marker.scale.x = scale
             marker.scale.y = scale
             marker.scale.z = scale
             
-            # Color (red, becoming more transparent with higher certainty)
-            marker.color.r = 1.0
-            marker.color.g = 0.0
+            # Maroon
+            marker.color.r = 0.8
+            marker.color.g = 0.10
             marker.color.b = 0.0
-            marker.color.a = max(0.1, min(1.0, 1.0 - 0.9 * (1.0 - uncertainty)))
+            marker.color.a = 1.0  # Opaque
             
             marker_array.markers.append(marker)
             
         self.beacon_pub.publish(marker_array)
+    
+    def publish_beacons_by_particle_viz(self):
+        """Publish estimated beacon positions of beacon particles for visualization."""
+        marker_array = MarkerArray()
+        
+        for i, (beacon_pos, beacon_cov) in enumerate(zip(self.map.average_beacon_positions_by_particle, self.map.beacon_covariances_by_particle)):
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            marker.ns = "beacons"
+            marker.id = i
+            marker.type = Marker.SPHERE
+            marker.action = Marker.ADD
+            
+            # Position
+            marker.pose.position.x = beacon_pos[0]
+            marker.pose.position.y = beacon_pos[1]
+            marker.pose.position.z = 0.1
+            
+            # Bigger scale
+            uncertainty = np.sqrt(np.linalg.det(beacon_cov))
+            scale = max(0.25, min(1.5, uncertainty * 1.5))
+            marker.scale.x = scale
+            marker.scale.y = scale
+            marker.scale.z = scale
+            
+            # Deep Burgundy
+            marker.color.r = 0.0
+            marker.color.g = 0.25
+            marker.color.b = 0.5
+            marker.color.a = 1.0
+            
+            marker_array.markers.append(marker)
+            
+        self.beacon_by_particle_pub.publish(marker_array)
+    
+    def publish_total_beacon_particles_viz(self):
+        """Publish total beacon particles as a marker array of point clouds"""
+
+        if self.map.total_beacon_particles is not None:
+            marker_array = MarkerArray()
+            
+            for i, beacon_particle_set in enumerate(self.map.total_beacon_particles):
+                marker = Marker()
+                marker.header.stamp = self.get_clock().now().to_msg()
+                marker.header.frame_id = "map"
+                marker.ns = f"beacon_{i}_total_particles"
+                marker.id = i
+                marker.type = Marker.POINTS
+                marker.action = Marker.ADD
+                marker.scale.x = 0.02
+                marker.scale.y = 0.02
+
+                # Seafoam Green - light, semi-transparent for background particles
+                marker.color.r = 0.13
+                marker.color.g = 0.70
+                marker.color.b = 0.67
+                marker.color.a = 0.15
+                # marker.color.r = (i * 40) % 255 / 255.0
+                # marker.color.g = (i * 70) % 255 / 255.0
+                # marker.color.b = (i * 110) % 255 / 255.0
+                
+                for particle_pos in beacon_particle_set:
+                    p = Point()
+                    p.x = float(particle_pos[0])
+                    p.y = float(particle_pos[1])
+                    p.z = 0.0  # Bottom layer z-value
+                    marker.points.append(p)
+                
+                marker_array.markers.append(marker)
+            
+            # Publish the actual data
+            self.total_beacon_particles_pub.publish(marker_array)
+    
+    def publish_beacon_particles_viz(self):
+        """Publish beacon particles as a marker array of point clouds"""
+        # Start with fresh empty array every time
+        marker_array = MarkerArray()
+        
+        # First, add a marker to clear everything
+        clear_marker = Marker()
+        clear_marker.header.stamp = self.get_clock().now().to_msg()
+        clear_marker.header.frame_id = "map"
+        clear_marker.action = Marker.DELETEALL
+        marker_array.markers.append(clear_marker)
+        
+        # Publish the clear commandF
+        self.beacon_particles_pub.publish(marker_array)
+        
+        # Then create and publish new markers if we have data
+        if self.localization.beacon_particles is not None:
+            marker_array = MarkerArray()  # Fresh array for the actual data
+            
+            for i, beacon_particle_set in enumerate(self.localization.beacon_particles):
+                marker = Marker()
+                marker.header.stamp = self.get_clock().now().to_msg()
+                marker.header.frame_id = "map"
+                marker.ns = f"beacon_{i}_particles"
+                marker.id = i
+                marker.type = Marker.POINTS
+                marker.action = Marker.ADD
+                marker.scale.x = 0.02
+                marker.scale.y = 0.02
+                
+                # Bright Green - stands out but doesn't dominate
+                marker.color.r = 0.0
+                marker.color.g = 0.8
+                marker.color.b = 0.0
+                marker.color.a = 0.5
+                # marker.color.r = (i * 40) % 255 / 255.0
+                # marker.color.g = (i * 70) % 255 / 255.0
+                # marker.color.b = (i * 110) % 255 / 255.0
+                
+                for particle_pos in beacon_particle_set:
+                    p = Point()
+                    p.x = float(particle_pos[0])
+                    p.y = float(particle_pos[1])
+                    p.z = 0.05 
+                    marker.points.append(p)
+                
+                marker_array.markers.append(marker)
+            
+            # Publish the actual data
+            self.beacon_particles_pub.publish(marker_array)
 
 
 def main(args=None):
