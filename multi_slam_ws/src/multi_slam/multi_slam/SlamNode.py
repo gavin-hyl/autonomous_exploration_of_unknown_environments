@@ -13,6 +13,7 @@ from std_msgs.msg import Header, Bool
 from sensor_msgs_py.point_cloud2 import read_points
 from multi_slam.Planner import Planner
 from geometry_msgs.msg import Point
+from multi_slam.Map import MAP
 
 
 class SLAMNode(Node):
@@ -71,8 +72,8 @@ class SLAMNode(Node):
             dt=self.dt
         )
 
-        self.planner = Planner()
-        self.planner.update_map(self.map.get_prob_grid(), self.map.map_origin, self.map.grid_size)
+        # self.planner = Planner()
+        # self.planner.update_map(self.map.get_prob_grid(), self.map.map_origin, self.map.grid_size)
         
         # Lidar range
         self.lidar_range = (0.1, 10.0)  # min and max range in meters
@@ -111,7 +112,10 @@ class SLAMNode(Node):
         self.map_pub = self.create_publisher(OccupancyGrid, "/occupancy_grid", 10)
         self.beacon_pub = self.create_publisher(MarkerArray, "/estimated_beacons", 10)
         self.beacon_by_particle_pub = self.create_publisher(MarkerArray, "/estimated_beacons_by_particle", 10)
-        
+
+        # Publisher for Experiment Particle vs. Kalman Update Comparison
+        self.particle_vs_kalman_pub = self.create_publisher(Marker, "/particle_vs_kalman", 10)
+    
         # Timer for visualization
         self.create_timer(1, self.publish_viz)
         self.sim_done_cb(Bool(data=True))  # Call once to initialize
@@ -147,15 +151,16 @@ class SLAMNode(Node):
             beacon_particles=self.localization.beacon_particles
         )
         
-        self.get_logger().info("Updated map.")
+        # self.get_logger().info("Updated map.")
 
-        self.planner.update_map(self.map.get_prob_grid(), self.map.map_origin, self.map.grid_size)
-        self.planner.update_beacons(self.map.beacon_positions)
-        self.planner.update_position(self.position)
-        goal = self.planner.select_goal_point()
-        self.get_logger().info(f"Goal: {goal}")
+        # self.planner.update_map(self.map.get_prob_grid(), self.map.map_origin, self.map.grid_size)
+        # self.planner.update_beacons(self.map.beacon_positions)
+        # self.planner.update_position(self.position)
+        # goal = self.planner.select_goal_point()
+        # self.get_logger().info(f"Goal: {goal}")
 
         self.publish_particles()
+        self.publish_particle_vs_kalman_viz()
         self.slam_done_pub.publish(Bool(data=True))
 
     def particles_callback(self, msg: PointCloud2):
@@ -172,6 +177,31 @@ class SLAMNode(Node):
         self.publish_beacon_particles_viz()
         self.publish_total_beacon_particles_viz()
 
+    def publish_particle_vs_kalman_viz(self):
+        """Publish particle vs. kalman MSE comparison for recording."""
+        
+        if len(self.map.average_beacon_positions_by_particle) != 0 and len(self.map.beacon_positions) != 0:
+            # Calculate MSEs
+            particle_mse = 0
+            for pos in self.map.average_beacon_positions_by_particle:
+                se = MAP.return_se_to_closest_beacon(pos)
+                particle_mse += se
+            particle_mse /= len(self.map.average_beacon_positions_by_particle)
+
+            kalman_mse = 0
+            for pos in self.map.beacon_positions:
+                se = MAP.return_se_to_closest_beacon(pos)
+                kalman_mse += se
+            kalman_mse /= len(self.map.beacon_positions)
+
+            marker = Marker()
+            marker.header.frame_id = "map"
+            marker.header.stamp = self.get_clock().now().to_msg()
+            # Store MSEs in the scale field
+            marker.scale.x = particle_mse
+            marker.scale.y = kalman_mse
+            
+            self.particle_vs_kalman_pub.publish(marker)
 
     def lidar_callback(self, msg: PointCloud2):
         """Process LiDAR data."""
