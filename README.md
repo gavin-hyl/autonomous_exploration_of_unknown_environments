@@ -10,7 +10,9 @@ Our system demonstrates a comprehensive **SLAM architecture** integrating **part
 
 The implementation features robust sensor fusion of LiDAR and landmark measurements, physics-based simulation modeling sensor noise and collision dynamics, and adaptive waypoint tracking with proportional-derivative control for autonomous navigation in unknown environments.
 
-![Planning Flowchart](./assets/images/planning_process.png)
+<p align="center">
+  <img src="./assets/images/planning_process.png" width="500" alt="Planning Flowchart">
+</p>
 
 ## Technical Report
 For detailed algorithm descriptions, implementation details, ablation study, and evaluation metrics, see our technical report and full video:
