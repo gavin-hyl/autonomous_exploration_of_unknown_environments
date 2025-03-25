@@ -4,7 +4,7 @@
 Gio Huh, Taekyung Lee, Gavin Hua
 
 ## Overview
-Our system demonstrates a comprehensive **SLAM architecture** integrating **particle filter localization** with **log-odds occupancy grid mapping**. Key innovations include **information-theoretic exploration** using **entropy gradient analysis**, hybrid beacon mapping combining particle and Kalman filter approaches, and **entropy-informed A* path planning**.
+Our system demonstrates a comprehensive **SLAM architecture** integrating **particle filter localization** with **log-odds occupancy grid mapping**. Key innovations include **information-theoretic exploration** using **entropy gradient analysis**, beacon mapping with either particle or Kalman filter approach, and **entropy-informed A* path planning**.
 
 ![Demo Gif](./assets/gif/demo_30.gif)
 
