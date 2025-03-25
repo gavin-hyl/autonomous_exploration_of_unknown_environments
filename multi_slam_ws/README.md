@@ -1,11 +1,10 @@
-# Robotics (Caltech ME/EE/CS 133b) Final Project
+# Autonomous Exploration of Unknown Environments (SLAM + Entropy-Informed A* Exploration)
 
 ## Contributors
 Gio Huh, Taekyung Lee, Gavin Hua
 
-
 ## Instructions
-After cloning the repo, please 
+After cloning the repo, please
 ```sh
 pip install -r requirements.txt
 ```
