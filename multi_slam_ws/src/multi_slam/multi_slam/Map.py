@@ -17,11 +17,11 @@ class Map:
         beacons (List[Point]): A list of beacon positions.
     """
     def __init__(
-        self, 
-        x_min: float, 
-        y_min: float, 
-        x_max: float, 
-        y_max: float, 
+        self,
+        x_min: float,
+        y_min: float,
+        x_max: float,
+        y_max: float,
         obstacles: Optional[List[BaseGeometry]] = None,
         beacons: Optional[List[Point]] = None
     ) -> None:
@@ -78,13 +78,13 @@ class Map:
         """
         if not self.beacons:
             return 10e5
-        
+
         # Convert numpy array point to Shapely Point for distance calculation
         shapely_point = Point(point[0], point[1])
-        
+
         # Calculate squared distances to all beacons
         distances = [shapely_point.distance(beacon) for beacon in self.beacons]
-        
+
         # Return the minimum squared distance
         return min(distances) ** 2
 
@@ -145,18 +145,18 @@ class Map:
             List[Point]: A list of points where intersections occur.
         """
         intersections: List[Point] = []
-        
+
         # Intersection with the map boundary
         boundary_intersection = self.boundary.intersection(geom)
         if not boundary_intersection.is_empty:
             intersections.extend(self._extract_points(boundary_intersection))
-        
+
         # Intersection with each obstacle
         for obstacle in self.obstacles:
             obs_intersection = obstacle.intersection(geom)
             if not obs_intersection.is_empty:
                 intersections.extend(self._extract_points(obs_intersection))
-        
+
         return intersections
 
     def calc_lidar_point_cloud(self,
@@ -164,13 +164,14 @@ class Map:
                                delta_theta: float,
                                r_max: float,
                                r_min: float):
+        """Calculate the LiDAR point cloud for a given robot position."""
         # Create the line segments for the LiDAR rays
         ray_segments = []
         for theta in range(0, 360, delta_theta):
             x_end = pos_true[0] + r_max * math.cos(math.radians(theta))
             y_end = pos_true[1] + r_max * math.sin(math.radians(theta))
             ray_segments.append(LineString([(pos_true[0], pos_true[1]), (x_end, y_end)]))
-        
+
         # Find closest intersection points
         point_cloud = []
         robot_pos = Point(pos_true[0], pos_true[1])
@@ -188,9 +189,10 @@ class Map:
                 point_cloud.append(Point(ray.coords[-1]))
 
         return [np.array([p.x - pos_true[0], p.y - pos_true[1], 0]) for p in point_cloud]
-    
+
 
     def calc_beacon_positions(self, pos_true: np.array) -> List[np.array]:
+        """Calculate the positions of beacons relative to the robot."""
         # Calculate the line segments from the robot to each beacon
         pos_true_shapely = Point([pos_true[0], pos_true[1]])
         beacon_positions = []
@@ -205,7 +207,7 @@ class Map:
                 ))
         return beacon_positions
 
-# map for particle vs kalman mse
+# Map for particle vs kalman mse
 MAP = Map(-10, -10, 10, 10)
 
 MAP._add_beacon(Point(8.75, 0))
@@ -223,6 +225,7 @@ for center_x in [-4, 4]:
             (center_x - radius, center_y + radius)
         ]))
 
+# Below are different maps for testing
 # MAP = Map(-10, -10, 10, 10)
 
 # for x in [-8.75, 0, 8.75]:
