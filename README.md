@@ -4,12 +4,19 @@
 Gio Huh, Taekyung Lee, Gavin Hua
 
 ## Overview
-Our system demonstrates a comprehensive 2D **SLAM** architecture integrating **particle filter localization** with **log-odds occupancy grid mapping**. Key innovations include **information-theoretic exploration** using **entropy gradient analysis**, hybrid beacon mapping combining particle and Kalman filter approaches, and **entropy-informed A* path planning**. The implementation features robust sensor fusion of LiDAR and landmark measurements, physics-based simulation modeling sensor noise and collision dynamics, and adaptive waypoint tracking with proportional-derivative control for autonomous navigation in unknown environments.
+Our system demonstrates a comprehensive **SLAM architecture** integrating **particle filter localization** with **log-odds occupancy grid mapping**. Key innovations include **information-theoretic exploration** using **entropy gradient analysis**, hybrid beacon mapping combining particle and Kalman filter approaches, and **entropy-informed A* path planning**.
 
+![Demo Gif](./assets/gif/demo_30.gif)
 
+The implementation features robust sensor fusion of LiDAR and landmark measurements, physics-based simulation modeling sensor noise and collision dynamics, and adaptive waypoint tracking with proportional-derivative control for autonomous navigation in unknown environments.
+
+![Planning Flowchart](./assets/images/planning_process.png)
 
 ## Technical Report
-For detailed algorithm descriptions, implementation details, and evaluation metrics, see our technical report:
+For detailed algorithm descriptions, implementation details, ablation study, and evaluation metrics, see our technical report and full video:
+
+1. [Technical Report](https://drive.google.com/file/d/1aAcD-nnV9_3NcpWFxjNht4pzLu0-9uYG/view?usp=sharing)
+2. [Full Video](https://drive.google.com/file/d/1tzxq5DwKlgvJD8ZG-EpkwTZMMa1Of0hN/view?usp=sharing)
 
 ## Architecture
 The system consists of four primary ROS 2 nodes:
