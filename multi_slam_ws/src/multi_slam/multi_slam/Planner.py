@@ -1,1092 +1,2032 @@
-import numpy as np
-import math
-import cv2
-from scipy.ndimage import sobel, gaussian_filter
-from scipy.spatial import KDTree
-from typing import List, Tuple, Optional
-import random
-import time
-import logging
+# import numpy as np
+# import matplotlib.pyplot as plt
+# from scipy.ndimage import gaussian_filter, sobel, convolve
+# import math
+# import random
 
-
-########## RRT Node Class ##########
-class RRTNode:
-    def __init__(self, x, y):
-        self.x = x
-        self.y = y
-        self.path_x = []  # x coordinates to this node
-        self.path_y = []  # y coordinates to this node
-        self.parent = None  # parent node
-
-########## Planner Class ##########
-class Planner:
-
-    def __init__(self, 
-                 map_resolution=0.1,
-                 rrt_step_size=0.5,
-                 rrt_max_iter=500,
-                 rrt_goal_sample_rate=5,
-                 rrt_connect_circle_dist=0.5,
-                 pd_p_gain=2.0,
-                 pd_d_gain=0.2,
-                 entropy_weight=1.0,
-                 beacon_weight=2.0,
-                 beacon_attraction_radius=3.0):
-        """        
-        Args:
-            map_resolution (float): Map resolution (meters/cell)
-            rrt_step_size (float): RRT step size
-            rrt_max_iter (int): Maximum number of RRT iterations
-            rrt_goal_sample_rate (int): Goal point sampling rate (%)
-            rrt_connect_circle_dist (float): Node connection allowed distance
-            pd_p_gain (float): Proportional gain for PD controller
-            pd_d_gain (float): Derivative gain for PD controller
-            entropy_weight (float): Entropy map weight
-            beacon_weight (float): Beacon position weight
-            beacon_attraction_radius (float): Beacon attraction radius
-        """
-        # RRT parameters
-        self.rrt_step_size = rrt_step_size
-        self.rrt_max_iter = rrt_max_iter
-        self.rrt_goal_sample_rate = rrt_goal_sample_rate
-        self.rrt_connect_circle_dist = rrt_connect_circle_dist
+# class Planner:
+#     """
+#     Entropy-based autonomous exploration planner.
+    
+#     Computes information-rich areas in the environment for exploration,
+#     generates paths to selected goals using RRT, and provides control signals
+#     to follow these paths.
+#     """
+    
+#     def __init__(
+#         self,
+#         map_resolution=0.1,
+#         rrt_step_size=0.5,
+#         rrt_max_iter=1000,
+#         rrt_goal_sample_rate=5,
+#         rrt_connect_circle_dist=0.5,
+#         pd_p_gain=1.0,
+#         pd_d_gain=0.1,
+#         entropy_weight=1.0,
+#         beacon_weight=2.0,
+#         beacon_attraction_radius=3.0,
+#         goal_persistence_time=10.0,  # Time to keep trying a goal (seconds)
+#         goal_reached_threshold=0.5   # Distance to consider a goal reached (meters)
+#         ):
+#         """
+#         Initialize the planner with exploration and control parameters.
         
-        # PD controller parameters
+#         Args:
+#             map_resolution: Resolution of the occupancy grid (meters per cell)
+#             rrt_step_size: Step size for RRT exploration
+#             rrt_max_iter: Maximum iterations for RRT search
+#             rrt_goal_sample_rate: Percentage chance to sample the goal directly in RRT
+#             rrt_connect_circle_dist: Maximum distance to connect nodes in RRT
+#             pd_p_gain: Proportional gain for the PD controller
+#             pd_d_gain: Derivative gain for the PD controller
+#             entropy_weight: Weight for entropy gradient in goal selection
+#             beacon_weight: Weight for beacon attraction in goal selection
+#             beacon_attraction_radius: Radius within which beacons attract the robot
+#             goal_persistence_time: Time to keep trying a goal (seconds)
+#             goal_reached_threshold: Distance to consider a goal reached (meters)
+#         """
+#         # Map parameters
+#         self.map_grid = None
+#         self.map_resolution = map_resolution
+#         self.map_origin = None
+        
+#         # RRT parameters
+#         self.rrt_step_size = rrt_step_size
+#         self.rrt_max_iter = rrt_max_iter
+#         self.rrt_goal_sample_rate = rrt_goal_sample_rate
+#         self.rrt_connect_circle_dist = rrt_connect_circle_dist
+        
+#         # Controller parameters
+#         self.pd_p_gain = pd_p_gain
+#         self.pd_d_gain = pd_d_gain
+        
+#         # Exploration parameters
+#         self.entropy_weight = entropy_weight
+#         self.beacon_weight = beacon_weight
+#         self.beacon_attraction_radius = beacon_attraction_radius
+        
+#         # Robot state
+#         self.robot_position = np.array([0, 0, 0])
+#         self.prev_error = np.array([0, 0])
+        
+#         # Path following
+#         self.current_path = []
+#         self.current_path_index = 0
+#         self.waypoint_threshold = 0.3  # Distance to consider a waypoint reached
+        
+#         # Goal management
+#         self.current_goal = None
+#         self.goal_start_time = None
+#         self.goal_persistence_time = goal_persistence_time
+#         self.goal_reached_threshold = goal_reached_threshold
+#         self.goal_attempt_count = 0
+#         self.max_goal_attempts = 3  # Maximum attempts to reach a goal before selecting a new one
+        
+#         # Beacons
+#         self.beacon_positions = []
+        
+#         # Maps
+#         self.entropy_map = None
+#         self.boundary_map = None
+#         self.gradient_magnitude = None
+        
+#         # For visualization
+#         self.rrt_nodes = []
+#         self.rrt_edges = []
+#         self.rrt_samples = []
+            
+#     def update_map(self, occupancy_grid, map_origin, map_resolution):
+#         """
+#         Update the map used for planning.
+        
+#         Args:
+#             occupancy_grid: 2D numpy array of occupancy probabilities (0-1)
+#             map_origin: (x, y) tuple of map origin in world coordinates
+#             map_resolution: Resolution of the map in meters per cell
+#         """
+#         self.map_grid = occupancy_grid
+#         self.map_origin = map_origin
+#         self.map_resolution = map_resolution
+        
+#         # Clear previous computed maps
+#         self.entropy_map = None
+#         self.boundary_map = None
+#         self.gradient_magnitude = None
+        
+#     def update_position(self, position):
+#         """
+#         Update the robot's position.
+        
+#         Args:
+#             position: [x, y, theta] numpy array of robot position
+#         """
+#         self.robot_position = position
+        
+#     def update_beacons(self, beacon_positions):
+#         """
+#         Update the known beacon positions.
+        
+#         Args:
+#             beacon_positions: List of [x, y, z] positions of beacons
+#         """
+#         self.beacon_positions = beacon_positions
+    
+#     # def plan_and_control(self, dt, current_time=None):
+#     #     """
+#     #     Generate a plan and control signal for autonomous exploration.
+        
+#     #     Args:
+#     #         dt: Time step for control
+#     #         current_time: Current simulation time (for goal persistence)
+            
+#     #     Returns:
+#     #         (control_input, goal_point, path): 
+#     #             control_input: [vx, vy] numpy array of control velocities
+#     #             goal_point: [x, y] numpy array of selected goal position
+#     #             path: List of [x, y] points along the planned path
+#     #     """
+#     #     if current_time is None:
+#     #         current_time = 0.0
+        
+#     #     # Check if we should select a new goal
+#     #     new_goal_needed = False
+        
+#     #     # Case 1: No current goal
+#     #     if self.current_goal is None:
+#     #         new_goal_needed = True
+        
+#     #     # Case 2: Goal reached - simplified condition
+#     #     elif np.linalg.norm(self.robot_position[:2] - self.current_goal) < self.goal_reached_threshold:
+#     #         # Goal is reached - always get a new one
+#     #         print(f"DEBUG: Goal reached with distance {np.linalg.norm(self.robot_position[:2] - self.current_goal):.2f}")
+#     #         new_goal_needed = True
+#     #         self.goal_attempt_count = 0
+        
+#     #     # Case 3: Goal persistence timeout
+#     #     elif self.goal_start_time is not None and (current_time - self.goal_start_time) > self.goal_persistence_time:
+#     #         self.goal_attempt_count += 1
+            
+#     #         # If we've tried too many times, find a new goal
+#     #         if self.goal_attempt_count >= self.max_goal_attempts:
+#     #             new_goal_needed = True
+#     #             self.goal_attempt_count = 0
+#     #         else:
+#     #             # Try again with the same goal
+#     #             # Reset the goal start time to extend the timeout
+#     #             self.goal_start_time = current_time
+        
+#     #     # Select a new goal if needed
+#     #     if new_goal_needed:
+#     #         max_attempts = 10  # Maximum attempts to find a suitable goal
+#     #         goal_point = None
+            
+#     #         for attempt in range(max_attempts):
+#     #             goal_point = self.select_exploration_goal()
+                
+#     #             if goal_point is None:
+#     #                 print(f"DEBUG: No goal point found on attempt {attempt+1}/{max_attempts}")
+#     #                 continue
+                    
+#     #             # Don't select goals too close to the current position
+#     #             if np.linalg.norm(self.robot_position[:2] - goal_point) < 2.0:
+#     #                 print(f"DEBUG: Goal too close on attempt {attempt+1}/{max_attempts}, distance: {np.linalg.norm(self.robot_position[:2] - goal_point):.2f}")
+#     #                 continue
+                
+#     #             # Goal is good, break the loop
+#     #             print(f"DEBUG: Found suitable goal point on attempt {attempt+1}")
+#     #             break
+            
+#     #         # If we still don't have a goal after all attempts, try a random one
+#     #         if goal_point is None:
+#     #             print("DEBUG: Using random goal as fallback")
+#     #             # Choose a random direction and distance
+#     #             angle = np.random.uniform(0, 2 * np.pi)
+#     #             distance = np.random.uniform(3.0, 8.0)  # Between 3 and 8 meters
+#     #             goal_point = self.robot_position[:2] + np.array([
+#     #                 distance * np.cos(angle),
+#     #                 distance * np.sin(angle)
+#     #             ])
+                
+#     #             # Check if the random goal is in a free space
+#     #             i, j = self.world_to_grid(goal_point[0], goal_point[1])
+#     #             if hasattr(self, 'map_grid') and self.map_grid is not None:
+#     #                 # Try up to 20 random angles to find a free space
+#     #                 for _ in range(20):
+#     #                     if i >= 0 and i < self.map_grid.shape[1] and j >= 0 and j < self.map_grid.shape[0]:
+#     #                         if self.map_grid[j, i] < 0.5:  # Free space
+#     #                             break
+                        
+#     #                     # Try another angle
+#     #                     angle = np.random.uniform(0, 2 * np.pi)
+#     #                     goal_point = self.robot_position[:2] + np.array([
+#     #                         distance * np.cos(angle),
+#     #                         distance * np.sin(angle)
+#     #                     ])
+#     #                     i, j = self.world_to_grid(goal_point[0], goal_point[1])
+            
+#     #         # Update goal state
+#     #         self.current_goal = goal_point
+#     #         self.goal_start_time = current_time
+#     #         print(f"DEBUG: New goal set to {goal_point}")
+#     #     else:
+#     #         # Use existing goal
+#     #         goal_point = self.current_goal
+        
+#     #     # Plan a path to the goal
+#     #     path = self.plan_path(self.robot_position[:2], goal_point)
+
+#     #     # Store the current path
+#     #     if path and len(path) > 1:
+#     #         self.current_path = path
+#     #         self.current_path_index = 1  # Start with the second point (first after start)
+            
+#     #         # Generate control to follow the path - ONLY if we have a valid path
+#     #         control_input = self.generate_control(dt)
+#     #         return control_input, goal_point, path
+#     #     else:
+#     #         # No valid path found
+#     #         self.goal_attempt_count += 1
+            
+#     #         # Clear the current path to prevent using old path data
+#     #         self.current_path = []
+            
+#     #         # If we've tried too many times, find a new goal next time
+#     #         if self.goal_attempt_count >= self.max_goal_attempts:
+#     #             print("DEBUG: No valid path found after multiple attempts, will select new goal next time")
+#     #             self.current_goal = None
+            
+#     #         # Return no control input when path planning fails
+#     #         return None, self.current_goal, []
+    
+#     def plan_and_control(self, dt, current_time=None):
+#         """
+#         Generate a plan and control signal for autonomous exploration.
+        
+#         Args:
+#             dt: Time step for control
+#             current_time: Current simulation time (for goal persistence)
+            
+#         Returns:
+#             (control_input, goal_point, path): 
+#                 control_input: [vx, vy] numpy array of control velocities
+#                 goal_point: [x, y] numpy array of selected goal position
+#                 path: List of [x, y] points along the planned path
+#         """
+#         if current_time is None:
+#             current_time = 0.0
+        
+#         # Check if we should select a new goal
+#         new_goal_needed = False
+        
+#         # Case 1: No current goal
+#         if self.current_goal is None:
+#             new_goal_needed = True
+#             print("DEBUG: No current goal, selecting new goal")
+        
+#         # Case 2: Goal reached - simplified condition
+#         elif np.linalg.norm(self.robot_position[:2] - self.current_goal) < self.goal_reached_threshold:
+#             # Goal is reached - always get a new one
+#             print(f"DEBUG: Goal reached with distance {np.linalg.norm(self.robot_position[:2] - self.current_goal):.2f}")
+#             new_goal_needed = True
+#             self.goal_attempt_count = 0
+        
+#         # Case 3: Goal persistence timeout
+#         elif self.goal_start_time is not None and (current_time - self.goal_start_time) > self.goal_persistence_time:
+#             self.goal_attempt_count += 1
+#             print(f"DEBUG: Goal timeout #{self.goal_attempt_count}, attempts limit: {self.max_goal_attempts}")
+            
+#             # If we've tried too many times, find a new goal
+#             if self.goal_attempt_count >= self.max_goal_attempts:
+#                 print("DEBUG: Max attempts reached, selecting new goal")
+#                 new_goal_needed = True
+#                 self.goal_attempt_count = 0
+#             else:
+#                 # Try again with the same goal but ensure it's actually reachable
+#                 path_test = self.plan_path(self.robot_position[:2], self.current_goal)
+#                 if not path_test or len(path_test) <= 1:
+#                     print("DEBUG: Goal appears unreachable, selecting new goal")
+#                     new_goal_needed = True
+#                     self.goal_attempt_count = 0
+#                 else:
+#                     # Reset the goal start time to extend the timeout
+#                     self.goal_start_time = current_time
+#                     print(f"DEBUG: Goal still appears reachable, continuing with attempt #{self.goal_attempt_count}")
+        
+#         # Select a new goal if needed
+#         if new_goal_needed:
+#             max_attempts = 10  # Maximum attempts to find a suitable goal
+#             goal_point = None
+            
+#             for attempt in range(max_attempts):
+#                 goal_point = self.select_exploration_goal()
+                
+#                 if goal_point is None:
+#                     print(f"DEBUG: No goal point found on attempt {attempt+1}/{max_attempts}")
+#                     continue
+                    
+#                 # Don't select goals too close to the current position
+#                 if np.linalg.norm(self.robot_position[:2] - goal_point) < 2.0:
+#                     print(f"DEBUG: Goal too close on attempt {attempt+1}/{max_attempts}, distance: {np.linalg.norm(self.robot_position[:2] - goal_point):.2f}")
+#                     continue
+                
+#                 # Before committing to a goal, check if it's reachable
+#                 test_path = self.plan_path(self.robot_position[:2], goal_point)
+#                 if not test_path or len(test_path) <= 1:
+#                     print(f"DEBUG: Goal unreachable on attempt {attempt+1}/{max_attempts}")
+#                     continue
+                    
+#                 # Goal is good, break the loop
+#                 print(f"DEBUG: Found suitable goal point on attempt {attempt+1}")
+#                 break
+            
+#             # If we still don't have a goal after all attempts, try a random one
+#             if goal_point is None:
+#                 print("DEBUG: Using random goal as fallback")
+#                 # Choose a random direction and distance
+#                 angle = np.random.uniform(0, 2 * np.pi)
+#                 distance = np.random.uniform(3.0, 8.0)  # Between 3 and 8 meters
+#                 goal_point = self.robot_position[:2] + np.array([
+#                     distance * np.cos(angle),
+#                     distance * np.sin(angle)
+#                 ])
+                
+#                 # Check if the random goal is in a free space
+#                 i, j = self.world_to_grid(goal_point[0], goal_point[1])
+#                 if hasattr(self, 'map_grid') and self.map_grid is not None:
+#                     # Try up to 20 random angles to find a free space
+#                     for _ in range(20):
+#                         if i >= 0 and i < self.map_grid.shape[1] and j >= 0 and j < self.map_grid.shape[0]:
+#                             if self.map_grid[j, i] < 0.5:  # Free space
+#                                 break
+                        
+#                         # Try another angle
+#                         angle = np.random.uniform(0, 2 * np.pi)
+#                         goal_point = self.robot_position[:2] + np.array([
+#                             distance * np.cos(angle),
+#                             distance * np.sin(angle)
+#                         ])
+#                         i, j = self.world_to_grid(goal_point[0], goal_point[1])
+                    
+#                     # Final check for reachability of random goal
+#                     test_path = self.plan_path(self.robot_position[:2], goal_point)
+#                     if not test_path or len(test_path) <= 1:
+#                         print("DEBUG: Random goal is unreachable, will use direct path as fallback")
+            
+#             # Update goal state
+#             self.current_goal = goal_point
+#             self.goal_start_time = current_time
+#             self.goal_attempt_count = 0
+#             print(f"DEBUG: New goal set to ({goal_point[0]:.2f}, {goal_point[1]:.2f})")
+#         else:
+#             # Use existing goal
+#             goal_point = self.current_goal
+#             print(f"DEBUG: Continuing with existing goal ({goal_point[0]:.2f}, {goal_point[1]:.2f})")
+        
+#         # Plan a path to the goal
+#         path = self.plan_path(self.robot_position[:2], goal_point)
+        
+#         # Debug path information
+#         if path:
+#             print(f"DEBUG: Path planned with {len(path)} waypoints")
+#         else:
+#             print("DEBUG: Failed to plan a path")
+
+#         # Store the current path
+#         if path and len(path) > 1:
+#             self.current_path = path
+#             self.current_path_index = 1  # Start with the second point (first after start)
+            
+#             # Generate control to follow the path - ONLY if we have a valid path
+#             control_input = self.generate_control(dt)
+#             print(f"DEBUG: Generated control: ({control_input[0]:.2f}, {control_input[1]:.2f})")
+#             return control_input, goal_point, path
+#         else:
+#             # No valid path found
+#             self.goal_attempt_count += 1
+#             print(f"DEBUG: No valid path found, attempt #{self.goal_attempt_count}")
+            
+#             # Clear the current path to prevent using old path data
+#             self.current_path = []
+            
+#             # If we've tried too many times, find a new goal next time
+#             if self.goal_attempt_count >= self.max_goal_attempts:
+#                 print("DEBUG: No valid path found after multiple attempts, will select new goal next time")
+#                 self.current_goal = None
+            
+#             # Return no control input when path planning fails
+#             return None, self.current_goal, []
+
+#     def generate_entropy_map(self):
+#         """
+#         Generate an entropy map from the occupancy grid.
+        
+#         Returns:
+#             entropy_map: 2D numpy array of information entropy
+#         """
+#         if self.map_grid is None:
+#             return None
+        
+#         # Ensure probabilities are in [0.001, 0.999] range to avoid log(0) issues
+#         p = np.clip(self.map_grid, 0.001, 0.999)
+        
+#         # Calculate entropy: -p*log(p) - (1-p)*log(1-p)
+#         entropy = -p * np.log(p) - (1 - p) * np.log(1 - p)
+        
+#         # Apply mean filtering
+#         kernel = np.ones((3, 3)) / 9.0
+#         entropy_smooth = convolve(entropy, kernel)
+        
+#         self.entropy_map = entropy_smooth
+#         return entropy_smooth
+    
+#     def compute_entropy_gradient(self, entropy_map=None):
+#         """
+#         Compute the gradient of the entropy map.
+        
+#         Args:
+#             entropy_map: Optional entropy map to use (generated if None)
+            
+#         Returns:
+#             (gradient_x, gradient_y, gradient_magnitude): Gradient components and magnitude
+#         """
+#         if entropy_map is None:
+#             entropy_map = self.generate_entropy_map()
+            
+#         if entropy_map is None:
+#             return None, None, None
+        
+#         # Apply Sobel filter
+#         gradient_x = sobel(entropy_map, axis=1)
+#         gradient_y = sobel(entropy_map, axis=0)
+        
+#         # Compute gradient magnitude
+#         gradient_magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
+        
+#         # Normalize to [0, 1]
+#         max_magnitude = np.max(gradient_magnitude)
+#         if max_magnitude > 0:
+#             gradient_magnitude = gradient_magnitude / max_magnitude
+        
+#         self.gradient_magnitude = gradient_magnitude
+#         return gradient_x, gradient_y, gradient_magnitude
+    
+#     def generate_boundary_map(self):
+#         """
+#         Generate a boundary map that highlights transitions between known and unknown areas.
+        
+#         Returns:
+#             boundary_map: 2D numpy array of boundary values
+#         """
+#         if self.map_grid is None:
+#             return None
+        
+#         # Compute entropy gradient if not already done
+#         if self.gradient_magnitude is None:
+#             _, _, self.gradient_magnitude = self.compute_entropy_gradient()
+        
+#         # The gradient magnitude already represents boundaries
+#         self.boundary_map = self.gradient_magnitude
+        
+#         return self.boundary_map
+    
+#     def select_exploration_goal(self):
+#         """
+#         Select the best exploration goal based on entropy gradient and beacon positions.
+        
+#         Returns:
+#             goal_point: [x, y] numpy array of selected goal position
+#         """
+#         # Generate boundary map if not available
+#         if self.boundary_map is None:
+#             self.generate_boundary_map()
+            
+#         if self.boundary_map is None or self.map_grid is None:
+#             print("ERROR: Boundary map or map grid is None, cannot select goal")
+#             return None
+        
+#         # Log current state
+#         print(f"DEBUG: Robot position: [{self.robot_position[0]:.2f}, {self.robot_position[1]:.2f}]")
+#         print(f"DEBUG: Map shape: {self.map_grid.shape}, Boundary map shape: {self.boundary_map.shape}")
+        
+#         # Check if boundary map has any high values
+#         high_boundary_cells = np.where(self.boundary_map > 0.3)  # Lower threshold to find more candidates
+#         print(f"DEBUG: Number of high boundary cells: {len(high_boundary_cells[0])}")
+        
+#         # Create a copy to avoid modifying the original
+#         score_map = self.boundary_map.copy()
+        
+#         # Get grid dimensions
+#         height, width = score_map.shape
+        
+#         # Robot position in grid coordinates
+#         robot_x, robot_y = self.world_to_grid(self.robot_position[0], self.robot_position[1])
+        
+#         # Compute scores for each cell based on distance and beacon proximity
+#         best_score = -float('inf')
+#         best_cell = None
+        
+#         # Sample a subset of cells to evaluate (for efficiency)
+#         sample_rate = 0.1  # Increase from 0.05 to 0.1 to evaluate 10% of cells
+#         num_samples = int(height * width * sample_rate)
+        
+#         # Skip if grid is very small
+#         if num_samples < 10:
+#             num_samples = min(height * width, 100)
+        
+#         # Random sampling for evaluation
+#         candidate_cells = []
+        
+#         # Only consider cells with high boundary values
+#         high_boundary_threshold = 0.3  # Lower threshold from 0.5 to 0.3
+#         high_boundary_cells = np.where(self.boundary_map > high_boundary_threshold)
+        
+#         # If we have high boundary cells, prioritize those
+#         if len(high_boundary_cells[0]) > 0:
+#             high_boundary_indices = list(zip(high_boundary_cells[0], high_boundary_cells[1]))
+#             if len(high_boundary_indices) > num_samples:
+#                 candidate_cells = random.sample(high_boundary_indices, num_samples)
+#             else:
+#                 candidate_cells = high_boundary_indices
+        
+#         # If we need more candidates, add random cells
+#         if len(candidate_cells) < num_samples:
+#             additional_samples = num_samples - len(candidate_cells)
+#             for _ in range(additional_samples):
+#                 i = random.randint(0, height - 1)
+#                 j = random.randint(0, width - 1)
+#                 candidate_cells.append((i, j))
+        
+#         # If still no candidates, create some random positions around the robot
+#         if not candidate_cells:
+#             print("DEBUG: No candidate cells found, generating random positions")
+#             for _ in range(20):
+#                 # Random distance between 3 and 10 meters
+#                 distance = random.uniform(3.0, 10.0)
+#                 # Random angle
+#                 angle = random.uniform(0, 2 * np.pi)
+#                 # Calculate position
+#                 x = self.robot_position[0] + distance * np.cos(angle)
+#                 y = self.robot_position[1] + distance * np.sin(angle)
+#                 # Convert to grid coordinates
+#                 i, j = self.world_to_grid(x, y)
+#                 # Ensure within grid bounds
+#                 if 0 <= i < width and 0 <= j < height:
+#                     candidate_cells.append((j, i))  # Note: grid indices are (j,i)
+        
+#         print(f"DEBUG: Evaluating {len(candidate_cells)} candidate cells")
+        
+#         for i, j in candidate_cells:
+#             # Skip occupied cells
+#             if i >= 0 and i < height and j >= 0 and j < width and self.map_grid[i, j] > 0.7:
+#                 continue
+                
+#             # Get world coordinates
+#             cell_x, cell_y = self.grid_to_world(j, i)
+            
+#             # Compute distance to robot
+#             dx = cell_x - self.robot_position[0]
+#             dy = cell_y - self.robot_position[1]
+#             distance = math.sqrt(dx*dx + dy*dy)
+            
+#             # Skip cells that are too close to the robot
+#             if distance < 0.5:
+#                 continue
+                
+#             # Skip cells that are too far from the robot
+#             if distance > 12.0:  # Increased from 10.0 to 12.0
+#                 continue
+            
+#             # Computer score based on boundary value and distance
+#             score = (self.boundary_map[i, j] * self.entropy_weight) / max(0.5, distance)
+            
+#             # Add beacon attraction/repulsion factor
+#             beacon_factor = 0
+#             for beacon in self.beacon_positions:
+#                 beacon_dist = math.sqrt((cell_x - beacon[0])**2 + (cell_y - beacon[1])**2)
+                
+#                 # Attraction to beacons within radius
+#                 if beacon_dist < self.beacon_attraction_radius:
+#                     beacon_factor += 1.0 / max(0.5, beacon_dist)
+            
+#             # Add beacon factor to score
+#             score += beacon_factor * self.beacon_weight
+            
+#             if score > best_score:
+#                 best_score = score
+#                 best_cell = (i, j)
+        
+#         # If no valid cell found, return None
+#         if best_cell is None:
+#             print("DEBUG: No valid goal cell found after scoring")
+#             return None
+            
+#         # Convert best cell to world coordinates
+#         i, j = best_cell
+#         goal_x, goal_y = self.grid_to_world(j, i)
+        
+#         print(f"DEBUG: Selected goal at ({goal_x:.2f}, {goal_y:.2f}) with score {best_score:.4f}")
+#         return np.array([goal_x, goal_y])
+    
+#     def plan_path(self, start, goal):
+#         """
+#         Plan a path from start to goal using RRT.
+        
+#         Args:
+#             start: [x, y] start position
+#             goal: [x, y] goal position
+            
+#         Returns:
+#             path: List of [x, y] positions along the path
+#         """
+#         # Check if we're already very close to the goal
+#         if np.linalg.norm(np.array(start) - np.array(goal)) < self.waypoint_threshold:
+#             # If we're very close, just return a direct path
+#             return [np.array(start), np.array(goal)]
+        
+#         # Clear previous RRT data
+#         self.rrt_nodes = []
+#         self.rrt_edges = []
+#         self.rrt_samples = []
+        
+#         # Initialize RRT
+#         start_node = np.array(start)
+#         goal_node = np.array(goal)
+        
+#         # Check if goal is directly reachable
+#         if self.is_collision_free(start_node, goal_node):
+#             return [start_node, goal_node]
+        
+#         # RRT nodes and edges
+#         nodes = [start_node]
+#         parents = [0]  # Parent index (self for root)
+        
+#         # Store for visualization
+#         self.rrt_nodes = [start_node]
+        
+#         # Main RRT loop
+#         for i in range(self.rrt_max_iter):
+#             # Sample a point
+#             if random.randint(0, 100) < self.rrt_goal_sample_rate:
+#                 # Sample the goal directly
+#                 sample = goal_node
+#             else:
+#                 # Random sampling
+#                 sample = self.sample_free()
+            
+#             # Store for visualization
+#             self.rrt_samples.append(sample)
+            
+#             # Find nearest node
+#             nearest_idx = self.find_nearest(nodes, sample)
+#             nearest_node = nodes[nearest_idx]
+            
+#             # Steer towards sample
+#             new_node = self.steer(nearest_node, sample, self.rrt_step_size)
+            
+#             # Check if the path is collision-free
+#             if self.is_collision_free(nearest_node, new_node):
+#                 # Add the new node
+#                 nodes.append(new_node)
+#                 parents.append(nearest_idx)
+                
+#                 # Store for visualization
+#                 self.rrt_nodes.append(new_node)
+#                 self.rrt_edges.append((nearest_node, new_node))
+                
+#                 # Check if we can connect to the goal
+#                 if np.linalg.norm(new_node - goal_node) <= self.rrt_connect_circle_dist:
+#                     if self.is_collision_free(new_node, goal_node):
+#                         # Goal reached, construct the path
+#                         nodes.append(goal_node)
+#                         parents.append(len(nodes) - 2)  # Parent is the last node
+                        
+#                         # Store for visualization
+#                         self.rrt_nodes.append(goal_node)
+#                         self.rrt_edges.append((new_node, goal_node))
+                        
+#                         return self.construct_path(nodes, parents)
+        
+#         # If we couldn't find a path but we're close enough to the goal,
+#         # just return a direct path
+#         if np.linalg.norm(start_node - goal_node) < self.goal_reached_threshold * 2:
+#             return [start_node, goal_node]
+            
+#         # RRT failed to find a path
+#         return []
+    
+#     def sample_free(self):
+#         """
+#         Sample a random collision-free point.
+        
+#         Returns:
+#             point: [x, y] random point
+#         """
+#         if self.map_grid is None:
+#             # Default sampling range if no map
+#             x = random.uniform(-10, 10)
+#             y = random.uniform(-10, 10)
+#             return np.array([x, y])
+        
+#         # Get map dimensions
+#         height, width = self.map_grid.shape
+        
+#         # Maximum attempts to find a free space
+#         max_attempts = 100
+        
+#         for _ in range(max_attempts):
+#             # Sample random grid cell
+#             i = random.randint(0, height - 1)
+#             j = random.randint(0, width - 1)
+            
+#             # Check if cell is free (threshold < 0.5 means free space)
+#             if self.map_grid[i, j] < 0.5:
+#                 # Convert to world coordinates
+#                 x, y = self.grid_to_world(j, i)
+#                 return np.array([x, y])
+        
+#         # If no free space found after max attempts, sample randomly
+#         x = random.uniform(
+#             self.map_origin[0], 
+#             self.map_origin[0] + width * self.map_resolution
+#         )
+#         y = random.uniform(
+#             self.map_origin[1],
+#             self.map_origin[1] + height * self.map_resolution
+#         )
+        
+#         return np.array([x, y])
+    
+#     def find_nearest(self, nodes, point):
+#         """
+#         Find the nearest node to a given point.
+        
+#         Args:
+#             nodes: List of nodes
+#             point: Target point
+            
+#         Returns:
+#             idx: Index of the nearest node
+#         """
+#         dists = [np.linalg.norm(node - point) for node in nodes]
+#         return np.argmin(dists)
+    
+#     def steer(self, from_node, to_node, step_size):
+#         """
+#         Steer from one node towards another with a maximum step size.
+        
+#         Args:
+#             from_node: Starting node
+#             to_node: Target node
+#             step_size: Maximum distance to move
+            
+#         Returns:
+#             new_node: New node after steering
+#         """
+#         dist = np.linalg.norm(to_node - from_node)
+        
+#         if dist <= step_size:
+#             return to_node
+        
+#         # Compute direction vector
+#         direction = (to_node - from_node) / dist
+        
+#         # Compute new node
+#         new_node = from_node + direction * step_size
+        
+#         return new_node
+    
+#     def is_collision_free(self, from_node, to_node):
+#         """
+#         Check if a path between two nodes is collision-free.
+        
+#         Args:
+#             from_node: Starting node
+#             to_node: Target node
+            
+#         Returns:
+#             is_free: True if path is collision-free, False otherwise
+#         """
+#         if self.map_grid is None:
+#             return True
+        
+#         # Number of checks along the path
+#         resolution = max(1, int(np.linalg.norm(to_node - from_node) / (self.map_resolution * 0.5)))
+        
+#         # Check points along the path
+#         for i in range(resolution + 1):
+#             t = i / resolution
+#             point = from_node * (1 - t) + to_node * t
+            
+#             # Convert to grid coordinates
+#             grid_i, grid_j = self.world_to_grid(point[0], point[1])
+            
+#             # Check if in bounds
+#             if 0 <= grid_i < self.map_grid.shape[1] and 0 <= grid_j < self.map_grid.shape[0]:
+#                 # Check if occupied
+#                 if self.map_grid[grid_j, grid_i] > 0.5:  # Threshold for occupancy
+#                     return False
+#             else:
+#                 # Out of bounds is considered collision
+#                 return False
+        
+#         return True
+    
+#     def construct_path(self, nodes, parents):
+#         """
+#         Construct a path from start to goal using the RRT tree.
+        
+#         Args:
+#             nodes: List of nodes
+#             parents: List of parent indices
+            
+#         Returns:
+#             path: List of nodes along the path from start to goal
+#         """
+#         # Start from the goal (last node)
+#         path = [nodes[-1]]
+#         parent_idx = parents[-1]
+        
+#         # Follow parents until we reach the start (index 0)
+#         while parent_idx != 0:
+#             path.append(nodes[parent_idx])
+#             parent_idx = parents[parent_idx]
+        
+#         # Add the start node
+#         path.append(nodes[0])
+        
+#         # Reverse to get path from start to goal
+#         path.reverse()
+        
+#         return path
+    
+#     def generate_control(self, dt):
+#         """
+#         Generate control signal to follow the current path.
+        
+#         Args:
+#             dt: Time step
+            
+#         Returns:
+#             control: [vx, vy] velocity control
+#         """
+#         if not self.current_path or self.current_path_index >= len(self.current_path):
+#             return np.zeros(2)
+        
+#         # Current target waypoint
+#         target = self.current_path[self.current_path_index]
+        
+#         # Error (vector from robot to target)
+#         error_x = target[0] - self.robot_position[0]
+#         error_y = target[1] - self.robot_position[1]
+        
+#         # Check if we've reached the waypoint
+#         dist_to_target = math.sqrt(error_x**2 + error_y**2)
+        
+#         if dist_to_target < self.waypoint_threshold:
+#             # Advance to next waypoint
+#             self.current_path_index += 1
+            
+#             # If we've reached the end of the path
+#             if self.current_path_index >= len(self.current_path):
+#                 return np.zeros(2)
+                
+#             # Update target
+#             target = self.current_path[self.current_path_index]
+#             error_x = target[0] - self.robot_position[0]
+#             error_y = target[1] - self.robot_position[1]
+        
+#         # Calculate error and error derivative
+#         error = np.array([error_x, error_y])
+#         error_derivative = (error - self.prev_error) / dt
+        
+#         # PD control
+#         control = self.pd_p_gain * error + self.pd_d_gain * error_derivative
+        
+#         # Limit control magnitude
+#         control_mag = np.linalg.norm(control)
+#         if control_mag > 2.0:
+#             control = control * (2.0 / control_mag)
+            
+#         # Update previous error
+#         self.prev_error = error
+        
+#         return control
+        
+#     def world_to_grid(self, x, y):
+#         """
+#         Convert world coordinates to grid indices.
+        
+#         Args:
+#             x, y: World coordinates
+            
+#         Returns:
+#             i, j: Grid indices
+#         """
+#         if self.map_grid is None or self.map_origin is None:
+#             return 0, 0
+            
+#         i = int((x - self.map_origin[0]) / self.map_resolution)
+#         j = int((y - self.map_origin[1]) / self.map_resolution)
+        
+#         # Ensure within grid bounds
+#         i = max(0, min(i, self.map_grid.shape[1] - 1))
+#         j = max(0, min(j, self.map_grid.shape[0] - 1))
+        
+#         return i, j
+        
+#     def grid_to_world(self, i, j):
+#         """
+#         Convert grid indices to world coordinates.
+        
+#         Args:
+#             i, j: Grid indices
+            
+#         Returns:
+#             x, y: World coordinates
+#         """
+#         if self.map_origin is None:
+#             return 0, 0
+            
+#         x = self.map_origin[0] + (i + 0.5) * self.map_resolution
+#         y = self.map_origin[1] + (j + 0.5) * self.map_resolution
+        
+#         return x, y
+
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.ndimage import gaussian_filter, sobel, convolve
+import math
+import random
+import heapq
+
+class Planner:
+    """
+    Entropy-based autonomous exploration planner.
+    
+    Computes information-rich areas in the environment for exploration,
+    generates paths to selected goals using A*, and provides control signals
+    to follow these paths.
+    """
+    
+    def __init__(
+        self,
+        map_resolution=0.1,
+        astar_allow_diagonal=True,
+        pd_p_gain=1.0,
+        pd_d_gain=0.1,
+        entropy_weight=1.0,
+        beacon_weight=2.0,
+        beacon_attraction_radius=3.0,
+        goal_persistence_time=10.0,  # Time to keep trying a goal (seconds)
+        goal_reached_threshold=0.5   # Distance to consider a goal reached (meters)
+        ):
+        """
+        Initialize the planner with exploration and control parameters.
+        
+        Args:
+            map_resolution: Resolution of the occupancy grid (meters per cell)
+            astar_allow_diagonal: Whether to allow diagonal movements in A*
+            pd_p_gain: Proportional gain for the PD controller
+            pd_d_gain: Derivative gain for the PD controller
+            entropy_weight: Weight for entropy gradient in goal selection
+            beacon_weight: Weight for beacon attraction in goal selection
+            beacon_attraction_radius: Radius within which beacons attract the robot
+            goal_persistence_time: Time to keep trying a goal (seconds)
+            goal_reached_threshold: Distance to consider a goal reached (meters)
+        """
+        # Map parameters
+        self.map_grid = None
+        self.map_resolution = map_resolution
+        self.map_origin = None
+        
+        # A* parameters
+        self.astar_allow_diagonal = astar_allow_diagonal
+        # Cost for movements (straight and diagonal)
+        self.straight_cost = 1.0
+        self.diagonal_cost = 1.414  # sqrt(2)
+        
+        # Controller parameters
         self.pd_p_gain = pd_p_gain
         self.pd_d_gain = pd_d_gain
         
-        # Map properties
-        self.map_resolution = map_resolution
-        self.occupancy_grid = None
-        self.grid_width = 0
-        self.grid_height = 0
-        self.grid_origin = (0, 0)
-        
-        # Weights and radii - Beacon attraction range
+        # Exploration parameters
         self.entropy_weight = entropy_weight
         self.beacon_weight = beacon_weight
         self.beacon_attraction_radius = beacon_attraction_radius
         
-        # State variables
-        self.current_pos = np.array([0.0, 0.0])
-        self.prev_pos = np.array([0.0, 0.0])
+        # Robot state
+        self.robot_position = np.array([0, 0, 0])
+        self.prev_error = np.array([0, 0])
+        
+        # Path following
         self.current_path = []
         self.current_path_index = 0
-        self.beacons = []
-        self.is_planning = False
-        self.last_control = np.array([0.0, 0.0])
-        self.prev_error = np.array([0.0, 0.0])
-        self.planning_time = time.time()
+        self.waypoint_threshold = 0.3  # Distance to consider a waypoint reached
         
-        # RRT visualization data
-        self.rrt_nodes = []     # Store nodes in the RRT tree
-        self.rrt_edges = []     # Store edges between nodes
-        self.rrt_samples = []   # Store random samples used for RRT
-        self.entropy_map = None # Store latest entropy map 
-        self.boundary_map = None # Store latest boundary map
+        # Goal management
+        self.current_goal = None
+        self.goal_start_time = None
+        self.goal_persistence_time = goal_persistence_time
+        self.goal_reached_threshold = goal_reached_threshold
+        self.goal_attempt_count = 0
+        self.max_goal_attempts = 3  # Maximum attempts to reach a goal before selecting a new one
         
-        # Variables for oscillation prevention
-        self.original_position = None  # Store initial position
-        self.previous_goals = []  # Store previous goal points
-        self.max_previous_goals = 5  # Maximum number of previous goals to store
-        self.forbidden_angle_range = 30  # Forbidden angle range (degrees)
-        self.visited_areas = []  # Store visited areas
-        self.visited_area_radius = 2.0  # Radius to consider as visited area (meters)
+        # Beacons
+        self.beacon_positions = []
         
-        # Variables for goal point stabilization
-        self.goal_dwell_time = 5.0  # Time to stay at goal point before replanning (seconds)
-        self.goal_reached_time = None  # Time when goal was reached
-        self.final_goal_reached = False  # Flag to indicate if final goal was reached
-        self.goal_reached_dist = 0.3  # Distance threshold to consider goal reached (meters)
-        self.waypoint_reached_dist = 0.2  # Distance threshold to consider waypoint reached (meters)
-        self.min_replan_time = 15.0  # Minimum time between replanning (seconds)
+        # Maps
+        self.entropy_map = None
+        self.boundary_map = None
+        self.gradient_magnitude = None
+        
+        # For visualization
+        self.astar_open_set = []
+        self.astar_closed_set = []
+        self.astar_path = []
 
-    def update_map(self, occupancy_grid, grid_origin, grid_resolution):
-        """
-        Update the occupancy grid map
-        
-        Args:
-            occupancy_grid (numpy.ndarray): Occupancy grid 
-            grid_origin (tuple): Grid origin (x, y)
-            grid_resolution (float): Grid resolution (meters/cell)
-        """
-        self.occupancy_grid = occupancy_grid
-        self.grid_height, self.grid_width = occupancy_grid.shape
-        self.grid_origin = grid_origin
-        self.map_resolution = grid_resolution
+        self.visited_regions = None  # Will be initialized when map is first updated
+        self.visit_memory_decay = 0.995  # Decay factor for visited areas (per update)
+        self.visit_influence_radius = 50  # Radius in cells to mark as visited
+        self.visit_penalty_weight = 0.8 
 
-    def update_position(self, current_pos):
-        """
-        Update the robot position
-        
-        Args:
-            current_pos (numpy.ndarray): Current robot position [x, y]
-        """
-        self.prev_pos = self.current_pos.copy()
-        self.current_pos = np.array(current_pos[:2])  # Use only x, y
-        
-        # If initial position is not set, store current position as initial position
-        if self.original_position is None:
-            self.original_position = self.current_pos.copy()
-            print(f"Original position set to: {self.original_position}")
-            
-        # Update visited areas
-        self.update_visited_areas(self.current_pos)
-            
-    def update_visited_areas(self, position):
-        """
-        Add current position to visited areas list
-        
-        Args:
-            position (numpy.ndarray): Current position [x, y]
-        """
-        # Check distance with already visited areas
-        for i, area in enumerate(self.visited_areas):
-            dist = np.linalg.norm(position - area['position'])
-            if dist < self.visited_area_radius:
-                # If area is already visited, increase visit count
-                self.visited_areas[i]['visits'] += 1
-                return
-                
-        # Add new visited area
-        self.visited_areas.append({
-            'position': position.copy(),
-            'visits': 1,
-            'time': time.time()
-        })
-        
-        # Clean up old visited areas (limit to 20)
-        if len(self.visited_areas) > 20:
-            # Sort by time and remove oldest
-            self.visited_areas.sort(key=lambda x: x['time'])
-            self.visited_areas.pop(0)
+        # # Open loop control parameters
+        # self.waypoint_timer = 0.0
+        # self.current_waypoint_time = 0.0
+        # self.fixed_speed = 1.0  # Fixed speed in m/s
+        # self.turning_speed_factor = 0.7  # Reduce speed for turns
+        # self.min_angle_for_turn = np.pi/6  # ~30 degrees
     
-    def calculate_angle(self, point1, point2):
+    # Add this method to the Planner class
+    def update_visited_regions(self):
         """
-        Calculate angle between two points (radians)
+        Update the visited regions grid by marking current position and decaying old visits.
+        This creates a "memory" of where the robot has been to encourage exploring new areas.
+        """
+        # Initialize visited_regions if not already done
+        if self.visited_regions is None and self.map_grid is not None:
+            self.visited_regions = np.zeros_like(self.map_grid)
+            print("DEBUG: Initialized visited regions grid")
+        
+        if self.visited_regions is None:
+            return  # Map not initialized yet
+        
+        # Decay the visit memory slightly each update
+        self.visited_regions *= self.visit_memory_decay
+        
+        # Get current position in grid coordinates
+        i, j = self.world_to_grid(self.robot_position[0], self.robot_position[1])
+        
+        # Mark area around robot as visited (higher weight to current position)
+        for di in range(-self.visit_influence_radius, self.visit_influence_radius+1):
+            for dj in range(-self.visit_influence_radius, self.visit_influence_radius+1):
+                ni, nj = i + di, j + dj
+                if 0 <= ni < self.visited_regions.shape[1] and 0 <= nj < self.visited_regions.shape[0]:
+                    distance = np.sqrt(di**2 + dj**2)
+                    if distance <= self.visit_influence_radius:
+                        # Weight decreases with distance from robot
+                        visit_weight = 1.0 - (distance / self.visit_influence_radius)
+                        self.visited_regions[nj, ni] = min(1.0, self.visited_regions[nj, ni] + visit_weight)
+
+
+    def update_map(self, occupancy_grid, map_origin, map_resolution):
+        """
+        Update the map used for planning.
         
         Args:
-            point1 (numpy.ndarray): Start point [x, y]
-            point2 (numpy.ndarray): End point [x, y]
-            
-        Returns:
-            float: Angle (radians, -pi~pi)
+            occupancy_grid: 2D numpy array of occupancy probabilities (0-1)
+            map_origin: (x, y) tuple of map origin in world coordinates
+            map_resolution: Resolution of the map in meters per cell
         """
-        return math.atan2(point2[1] - point1[1], point2[0] - point1[0])
+        self.map_grid = occupancy_grid
+        self.map_origin = map_origin
+        self.map_resolution = map_resolution
         
-    def is_forbidden_direction(self, goal_pos):
+        # Initialize or resize visited_regions to match map_grid
+        if self.visited_regions is None or self.visited_regions.shape != self.map_grid.shape:
+            self.visited_regions = np.zeros_like(self.map_grid)
+            print("DEBUG: Initialized/resized visited regions grid")
+        
+        # Clear previous computed maps
+        self.entropy_map = None
+        self.boundary_map = None
+        self.gradient_magnitude = None
+        
+    def update_position(self, position):
         """
-        Check if goal position is in forbidden direction (±30 degrees from original position direction)
+        Update the robot's position.
         
         Args:
-            goal_pos (numpy.ndarray): Goal position [x, y]
-            
-        Returns:
-            bool: True if direction is forbidden, False otherwise
+            position: [x, y, theta] numpy array of robot position
         """
-        if self.original_position is None:
-            return False
-            
-        # Calculate angle to original position from current position
-        angle_to_original = self.calculate_angle(self.current_pos, self.original_position)
+        self.robot_position = position
         
-        # Calculate angle to goal position from current position
-        angle_to_goal = self.calculate_angle(self.current_pos, goal_pos)
+    def update_beacons(self, beacon_positions):
+        """
+        Update the known beacon positions.
         
-        # Calculate angle difference (normalized to -pi~pi range)
-        angle_diff = (angle_to_goal - angle_to_original)
-        while angle_diff > math.pi:
-            angle_diff -= 2 * math.pi
-        while angle_diff < -math.pi:
-            angle_diff += 2 * math.pi
-            
-        # If absolute angle difference is within forbidden range, direction is forbidden
-        forbidden_rad = math.radians(self.forbidden_angle_range)
-        return abs(angle_diff) < forbidden_rad
+        Args:
+            beacon_positions: List of [x, y, z] positions of beacons
+        """
+        self.beacon_positions = beacon_positions
     
-    def is_previously_visited(self, pos, radius=2.0):
+    def plan_and_control(self, dt, current_time=None):
         """
-        Check if position is in previously visited area
+        Generate a plan and control signal for autonomous exploration.
         
         Args:
-            pos (numpy.ndarray): Position to check [x, y]
-            radius (float): Radius to consider as visited area
+            dt: Time step for control
+            current_time: Current simulation time (for goal persistence)
             
         Returns:
-            bool: True if area was frequently visited, False otherwise
+            (control_input, goal_point, path): 
+                control_input: [vx, vy] numpy array of control velocities
+                goal_point: [x, y] numpy array of selected goal position
+                path: List of [x, y] points along the planned path
         """
-        for area in self.visited_areas:
-            dist = np.linalg.norm(np.array(pos) - area['position'])
-            if dist < radius and area['visits'] > 2:  # Forbid revisiting areas visited more than 3 times
-                return True
-        return False
+        # Update visited regions based on current position
+        self.update_visited_regions()
         
-    def is_similar_to_previous_goals(self, pos, threshold=1.5):
-        """
-        Check if position is similar to previous goal points
+        if current_time is None:
+            current_time = 0.0
         
-        Args:
-            pos (numpy.ndarray): Position to check [x, y]
-            threshold (float): Distance threshold to consider as similar
+        # Check if we should select a new goal
+        new_goal_needed = False
+        
+        # Case 1: No current goal
+        if self.current_goal is None:
+            new_goal_needed = True
+            print("DEBUG: No current goal, selecting new goal")
+        
+        # Case 2: Goal reached - simplified condition
+        elif np.linalg.norm(self.robot_position[:2] - self.current_goal) < self.goal_reached_threshold:
+            # Goal is reached - always get a new one
+            print(f"DEBUG: Goal reached with distance {np.linalg.norm(self.robot_position[:2] - self.current_goal):.2f}")
+            new_goal_needed = True
+            self.goal_attempt_count = 0
+        
+        # Case 3: Goal persistence timeout
+        elif self.goal_start_time is not None and (current_time - self.goal_start_time) > self.goal_persistence_time:
+            self.goal_attempt_count += 1
+            print(f"DEBUG: Goal timeout #{self.goal_attempt_count}, attempts limit: {self.max_goal_attempts}")
             
-        Returns:
-            bool: True if similar to previous goal, False otherwise
-        """
-        for prev_goal in self.previous_goals:
-            dist = np.linalg.norm(np.array(pos) - prev_goal)
-            if dist < threshold:
-                return True
-        return False
-
-    def update_beacons(self, beacons):
-        """
-        Update beacon positions
-        
-        Args:
-            beacons (list): List of beacon positions [[x1, y1], [x2, y2], ...]
-        """
-        self.beacons = [np.array(beacon[:2]) for beacon in beacons]  # Use only x, y
-
-    def world_to_grid(self, world_x, world_y):
-        """
-        Convert world coordinates to grid coordinates
-        
-        Args:
-            world_x (float): World coordinate x
-            world_y (float): World coordinate y
-            
-        Returns:
-            tuple: Grid coordinates (grid_x, grid_y)
-        """
-        grid_x = int((world_x - self.grid_origin[0]) / self.map_resolution)
-        grid_y = int((world_y - self.grid_origin[1]) / self.map_resolution)
-        return grid_x, grid_y
-
-    def grid_to_world(self, grid_x, grid_y):
-        """
-        Convert grid coordinates to world coordinates
-        
-        Args:
-            grid_x (int): Grid coordinate x
-            grid_y (int): Grid coordinate y
-            
-        Returns:
-            tuple: World coordinates (world_x, world_y)
-        """
-        world_x = grid_x * self.map_resolution + self.grid_origin[0]
-        world_y = grid_y * self.map_resolution + self.grid_origin[1]
-        return world_x, world_y
-
-    # TK part 
-    def generate_entropy_map(self):  
-        """
-        creates entropy map from the occupancy grid 
-
-        unknown areas (occ_grid = -1) has highest entropy (1.0)
-        free areas (occ_grid = 0) has low entrophy (0.2)
-        occupied areas (occ_grid > 50) has no entrophy (0.0)
-
-        """
-        
-        if self.occupancy_grid is None:
-            return None
-        
-        # Assume occ grid is 0-1
-        o_grid = self.occupancy_grid
-        entropy_map = -o_grid * np.log2(o_grid + 1e-10) - (1 - o_grid) * np.log2(1 - o_grid + 1e-10)
-        entropy_map = np.nan_to_num(entropy_map)
-
-        # entropy_map = np.ones_like(self.occupancy_grid, dtype=float)
-        # unknown = (self.occupancy_grid == -1) # unknown
-        # free = (self.occupancy_grid == 0)     # free
-        # occupied = (self.occupancy_grid > 50)  # above 50 is occupied
-
-        # entropy_map[unknown] = 1.0 # high entropy
-        # entropy_map[free] = 0.2    # low entropy
-        # entropy_map[occupied] = 0.0 # no entropy
-
-
-        # gaussian filter for smoothnes (optional)
-        entropy_map = gaussian_filter(entropy_map, sigma=2)
-
-        # Store for visualization
-        self.entropy_map = entropy_map.copy()
-
-        return entropy_map
-
-
-    def compute_entropy_gradient(self, entropy_map):
-        """
-        gradient of entrophy map using sobel filter
-
-        """
-
-        sobel_h = sobel(entropy_map, axis=0) # horizontal gradient
-        sobel_v = sobel(entropy_map, axis=1) # vertical gradient
-
-        gradient_y = sobel_h
-        gradient_x = sobel_v
-
-        return gradient_x, gradient_y
-        
-        
-    def detect_exploration_boundary(self, entropy_map):
-        """
-        edge detection using sobel filter / gives you boundary map
-        """
-        
-        # get gradients from entropy map
-        gradient_x, gradient_y = self.compute_entropy_gradient(entropy_map)
-        gradient_norm = np.sqrt(gradient_x**2 + gradient_y**2)
-
-        # gradient threshold 
-        thres =  np.max(gradient_norm) * 0.4 ###### adjust threshold
-        boundary_map = (gradient_norm > thres).astype(float)
-
-        # gaussian filter for smoothnes (optional)
-        boundary_map = gaussian_filter(boundary_map, sigma=1)
-
-        # Store for visualization
-        self.boundary_map = boundary_map.copy()
-
-        return boundary_map
-
-
-    def select_goal_point(self):
-        """
-        selects next goal point for the robot - only from known areas
-        """
-        # robot pos to grid pos 
-        robot_grid_x, robot_grid_y = self.world_to_grid(self.current_pos[0], self.current_pos[1])
-
-        # check if grid pos is valid
-        if not (0 <= robot_grid_x < self.grid_width and 0 <= robot_grid_y < self.grid_height):
-            return None
-        
-        # find candidate points
-        if self.occupancy_grid is None:
-            return None
-        
-        entropy_map = self.generate_entropy_map()
-        if entropy_map is None:
-            return None
-        
-        # boundaries based on entrophy
-        boundary_map = self.detect_exploration_boundary(entropy_map)
-
-        # mean filter applied to boundary map
-        filtered_boundary = cv2.boxFilter(boundary_map, -1, (15, 15)) # 15 by 15 kernel
-        # replacing the filtered boundary w max value in 25 by 25 kernel
-        max_filtered = cv2.dilate(filtered_boundary, np.ones((25, 25)))
-        local_maximas = (filtered_boundary == max_filtered) & (filtered_boundary > 0.3)
-
-        goal_pts = []
-        y_idx, x_idx = np.where(local_maximas)
-
-        # Calculate exploration direction (from origin to current position)
-        if self.original_position is not None:
-            exploration_direction = self.current_pos - self.original_position
-            if np.linalg.norm(exploration_direction) > 0.001:
-                exploration_direction = exploration_direction / np.linalg.norm(exploration_direction)
+            # If we've tried too many times, find a new goal
+            if self.goal_attempt_count >= self.max_goal_attempts:
+                print("DEBUG: Max attempts reached, selecting new goal")
+                new_goal_needed = True
+                self.goal_attempt_count = 0
             else:
-                exploration_direction = np.array([1.0, 0.0])  # Default direction
-        else:
-            exploration_direction = np.array([1.0, 0.0])
-
-        # LiDAR 스캔 범위 설정 (미터 단위)
-        lidar_range = 5.0  # LiDAR의 최대 스캔 범위
-        search_radius = min(lidar_range, 1000.0 / self.map_resolution)  # LiDAR 범위와 기존 검색 범위 중 작은 값 사용
-
-        for i in range(len(y_idx)):
-            x = x_idx[i]
-            y = y_idx[i]
-
-            # Skip occupied cells and unknown cells
-            if self.occupancy_grid[y, x] >= 50 or self.occupancy_grid[y, x] == -1:
-                continue
-
-            # Convert to world coordinates
-            world_x, world_y = self.grid_to_world(x, y)
-            world_pos = np.array([world_x, world_y])
-            
-            # Calculate distance from robot
-            d = np.linalg.norm(world_pos - self.current_pos)
-            
-            # Skip if too close or too far from LiDAR range
-            if d < 1.0 or d > lidar_range:
-                continue
-
-            # Skip if not in known area
-            if not self.is_in_known_area(world_x, world_y):
-                continue
-            
-            # Check if direction is forbidden
-            if self.is_forbidden_direction(world_pos):
-                continue
-                
-            # Check if area was previously visited
-            if self.is_previously_visited(world_pos):
-                continue
-                
-            # Check if similar to previous goals
-            if self.is_similar_to_previous_goals(world_pos):
-                continue
-
-            gradient_x, gradient_y = self.compute_entropy_gradient(entropy_map)
-            grad_norm = filtered_boundary[y, x]
-
-            d_score = 1.0 - (d / search_radius)
-            grad_score = grad_norm / (np.max(gradient_x)**2 + np.max(gradient_y)**2)**0.5
-
-            # Calculate direction score based on exploration direction
-            direction_to_point = world_pos - self.current_pos
-            if np.linalg.norm(direction_to_point) > 0.001:
-                direction_to_point = direction_to_point / np.linalg.norm(direction_to_point)
-                direction_alignment = np.dot(direction_to_point, exploration_direction)
-                direction_score = max(0, direction_alignment)  # Only reward forward movement
-            else:
-                direction_score = 0
-
-            # Adjust weights to prefer forward exploration
-            d_weight = 0.3  # Distance weight
-            grad_weight = 0.3  # Gradient weight
-            direction_weight = 0.4  # Direction weight (increased)
-            score_total = (d_score * d_weight + 
-                         grad_score * grad_weight + 
-                         direction_score * direction_weight)
-
-            goal_pts.append((world_x, world_y, score_total))
-        
-        # if there are no goal points, find any valid known free cell
-        if not goal_pts:
-            print("No high entropy goal points found. Searching for any known free cell...")
-            attempts = 0
-            while attempts < 300:  # Increase attempts for better chance of finding valid point
-                # Generate random angle and distance for radial search
-                angle = random.uniform(0, 2 * math.pi)
-                distance = random.uniform(1.0, lidar_range)  # LiDAR 범위 내에서만 검색
-                
-                # Convert to grid coordinates
-                rand_grid_x = int(robot_grid_x + distance * math.cos(angle))
-                rand_grid_y = int(robot_grid_y + distance * math.sin(angle))
-                
-                # Check if within grid bounds
-                if (0 <= rand_grid_x < self.grid_width and 
-                    0 <= rand_grid_y < self.grid_height):
-                    
-                    # Filter for known and free cells only
-                    if 0 <= self.occupancy_grid[rand_grid_y, rand_grid_x] < 50:
-                        world_x, world_y = self.grid_to_world(rand_grid_x, rand_grid_y)
-                        world_pos = np.array([world_x, world_y])
-                        
-                        # Additional checks
-                        if (not self.is_forbidden_direction(world_pos) and 
-                            not self.is_previously_visited(world_pos) and
-                            not self.is_similar_to_previous_goals(world_pos)):
-                            print(f"Found random goal in known area: ({world_x}, {world_y})")
-                            return world_x, world_y
-                    
-                attempts += 1
-            
-            print("Could not find valid goal point. Staying at current position.")
-            return self.current_pos[0], self.current_pos[1]
-        
-        best_goal_pt = max(goal_pts, key=lambda x: x[2])
-        
-        # Add goal point to previous goals list
-        goal_pos = np.array([best_goal_pt[0], best_goal_pt[1]])
-        self.previous_goals.append(goal_pos.copy())
-        
-        # Limit previous goals list size
-        if len(self.previous_goals) > self.max_previous_goals:
-            self.previous_goals.pop(0)
-            
-        return best_goal_pt[0], best_goal_pt[1]
-
-    def check_collision(self, x, y):
-        """
-        Check if a given position collides with obstacles or is in unknown area
-        
-        Args:
-            x (float): World coordinate x
-            y (float): World coordinate y
-            
-        Returns:
-            bool: True if collision or unknown area, False otherwise
-        """
-        if self.occupancy_grid is None:
-            return True
-        
-        grid_x, grid_y = self.world_to_grid(x, y)
-        
-        # Consider out of grid as collision
-        if grid_x < 0 or grid_x >= self.grid_width or grid_y < 0 or grid_y >= self.grid_height:
-            return True
-        
-        # Consider occupied cells (≥50) or unknown cells (-1) as collision
-        if self.occupancy_grid[grid_y, grid_x] >= 50 or self.occupancy_grid[grid_y, grid_x] == -1:
-            return True
-        
-        return False
-        
-    def is_in_known_area(self, x, y):
-        """
-        Check if a given position is in known area (not unknown or out of bounds)
-        
-        Args:
-            x (float): World coordinate x
-            y (float): World coordinate y
-            
-        Returns:
-            bool: True if in known area, False otherwise
-        """
-        if self.occupancy_grid is None:
-            return False
-        
-        grid_x, grid_y = self.world_to_grid(x, y)
-        
-        # Out of grid is not a known area
-        if grid_x < 0 or grid_x >= self.grid_width or grid_y < 0 or grid_y >= self.grid_height:
-            return False
-        
-        # -1 indicates unknown area
-        if self.occupancy_grid[grid_y, grid_x] == -1:
-            return False
-            
-        # Check surrounding cells (ensure not on the edge of known space)
-        radius = 2  # cells radius to check
-        for dy in range(-radius, radius+1):
-            for dx in range(-radius, radius+1):
-                ny, nx = grid_y + dy, grid_x + dx
-                if (0 <= nx < self.grid_width and 0 <= ny < self.grid_height and 
-                    self.occupancy_grid[ny, nx] == -1):
-                    return False  # Near unknown area
-        
-        return True
-
-    def check_path_collision(self, from_x, from_y, to_x, to_y):
-        """
-        Check if a path between two points collides with obstacles
-        
-        Args:
-            from_x (float): Start point x
-            from_y (float): Start point y
-            to_x (float): End point x
-            to_y (float): End point y
-            
-        Returns:
-            bool: True if collision, False otherwise
-        """
-        # Calculate distance between the two points
-        dist = math.sqrt((to_x - from_x)**2 + (to_y - from_y)**2)
-        
-        # Determine number of sampling points based on distance and resolution
-        # 더 조밀한 샘플링을 위해 해상도의 1/4 크기로 설정
-        step_size = self.map_resolution * 0.25
-        steps = max(2, int(dist / step_size))
-        
-        # Inflation radius (in grid cells) - 로봇 크기에 맞게 조정
-        inflation_radius = 5  # 로봇 크기에 맞게 조정
-        
-        # Sample along the path
-        for i in range(steps + 1):
-            t = i / steps
-            x = from_x + t * (to_x - from_x)
-            y = from_y + t * (to_y - from_y)
-            
-            grid_x, grid_y = self.world_to_grid(x, y)
-            
-            # Check inflated area around the point for obstacles
-            for dy in range(-inflation_radius, inflation_radius+1):
-                for dx in range(-inflation_radius, inflation_radius+1):
-                    nx, ny = grid_x + dx, grid_y + dy
-                    
-                    # Skip if out of grid
-                    if nx < 0 or nx >= self.grid_width or ny < 0 or ny >= self.grid_height:
-                        continue
-                    
-                    # Check if obstacle or unknown
-                    if self.occupancy_grid[ny, nx] >= 50 or self.occupancy_grid[ny, nx] == -1:
-                        print(f"Collision detected at grid position ({nx}, {ny}) with value {self.occupancy_grid[ny, nx]}")
-                        return True  # Collision detected
-        
-        return False
-
-    def rrt_planning(self, start_pos, goal_pos, max_attempts=3):
-        """
-        Path planning using the RRT algorithm - constrained to known areas
-        
-        Args:
-            start_pos (numpy.ndarray): Start position [x, y]
-            goal_pos (numpy.ndarray): Goal position [x, y]
-            max_attempts (int): Maximum number of attempts
-            
-        Returns:
-            list: Path coordinate list [[x1, y1], [x2, y2], ...], None if failed
-        """
-        self.is_planning = True
-        
-        # Record start time
-        start_time = time.time()
-        
-        # Ensure start and goal are in known areas
-        if not self.is_in_known_area(start_pos[0], start_pos[1]):
-            print("Start position is in unknown area.")
-            self.is_planning = False
-            return None
-            
-        # If goal point is occupied or in unknown area, find new goal point
-        if self.check_collision(goal_pos[0], goal_pos[1]) or not self.is_in_known_area(goal_pos[0], goal_pos[1]):
-            print("Goal point is occupied or in unknown area. Selecting another point...")
-            goal_x, goal_y = self.select_goal_point()
-            if goal_x is None or goal_y is None:
-                self.is_planning = False
-                return None
-            goal_pos = np.array([goal_x, goal_y])
-        
-        # Create a list of known free grid cells for sampling
-        known_free_cells = []
-        for y in range(self.grid_height):
-            for x in range(self.grid_width):
-                if 0 < self.occupancy_grid[y, x] < 50:  # Known and free
-                    known_free_cells.append((x, y))
-        
-        if not known_free_cells:
-            print("No known free cells available for RRT sampling")
-            self.is_planning = False
-            return None
-        
-        # Try RRT for maximum number of attempts
-        for attempt in range(max_attempts):
-            # Initialize nodes
-            start_node = RRTNode(start_pos[0], start_pos[1])
-            goal_node = RRTNode(goal_pos[0], goal_pos[1])
-            node_list = [start_node]
-            
-            # Clear visualization data for each attempt
-            self.rrt_nodes = [(start_pos[0], start_pos[1])]
-            self.rrt_edges = []
-            self.rrt_samples = []
-            
-            for i in range(self.rrt_max_iter):
-                # Sample random position
-                if random.randint(0, 100) > self.rrt_goal_sample_rate:
-                    # Generate random position from known free cells
-                    if known_free_cells:
-                        # Sample from known free cells
-                        rand_grid_x, rand_grid_y = random.choice(known_free_cells)
-                        rand_x, rand_y = self.grid_to_world(rand_grid_x, rand_grid_y)
-                        
-                        # Add small random offset within the cell
-                        rand_x += random.uniform(-0.5, 0.5) * self.map_resolution
-                        rand_y += random.uniform(-0.5, 0.5) * self.map_resolution
-                    else:
-                        # Fallback to area around start position
-                        rand_x = random.uniform(start_pos[0] - 5.0, start_pos[0] + 5.0)
-                        rand_y = random.uniform(start_pos[1] - 5.0, start_pos[1] + 5.0)
-                    
-                    rand_node = RRTNode(rand_x, rand_y)
-                    
-                    # Only store valid samples in known areas
-                    if self.is_in_known_area(rand_x, rand_y):
-                        self.rrt_samples.append((rand_x, rand_y))
+                # Try again with the same goal but ensure it's actually reachable
+                path_test = self.plan_path(self.robot_position[:2], self.current_goal)
+                if not path_test or len(path_test) <= 1:
+                    print("DEBUG: Goal appears unreachable, selecting new goal")
+                    new_goal_needed = True
+                    self.goal_attempt_count = 0
                 else:
-                    # Sample goal position
-                    rand_node = RRTNode(goal_pos[0], goal_pos[1])
+                    # Reset the goal start time to extend the timeout
+                    self.goal_start_time = current_time
+                    print(f"DEBUG: Goal still appears reachable, continuing with attempt #{self.goal_attempt_count}")
+        
+        # Select a new goal if needed
+        if new_goal_needed:
+            max_attempts = 10  # Maximum attempts to find a suitable goal
+            goal_point = None
+            
+            for attempt in range(max_attempts):
+                goal_point = self.select_exploration_goal()
+                
+                if goal_point is None:
+                    print(f"DEBUG: No goal point found on attempt {attempt+1}/{max_attempts}")
+                    continue
                     
-                    # Store sample for visualization
-                    self.rrt_samples.append((goal_pos[0], goal_pos[1]))
-                
-                # Find nearest node
-                nearest_ind = self.get_nearest_node_index(node_list, rand_node)
-                nearest_node = node_list[nearest_ind]
-                
-                # Create new node
-                new_node = self.steer(nearest_node, rand_node)
-                
-                # Skip if new node is in unknown area
-                if not self.is_in_known_area(new_node.x, new_node.y):
+                # Don't select goals too close to the current position
+                if np.linalg.norm(self.robot_position[:2] - goal_point) < 2.0:
+                    print(f"DEBUG: Goal too close on attempt {attempt+1}/{max_attempts}, distance: {np.linalg.norm(self.robot_position[:2] - goal_point):.2f}")
                     continue
                 
-                # Check collision
-                if self.check_path_collision(nearest_node.x, nearest_node.y, new_node.x, new_node.y):
+                # Before committing to a goal, check if it's reachable
+                test_path = self.plan_path(self.robot_position[:2], goal_point)
+                if not test_path or len(test_path) <= 1:
+                    print(f"DEBUG: Goal unreachable on attempt {attempt+1}/{max_attempts}")
                     continue
-                
-                # Add new node
-                node_list.append(new_node)
-                
-                # Store node and edge for visualization
-                self.rrt_nodes.append((new_node.x, new_node.y))
-                self.rrt_edges.append(((nearest_node.x, nearest_node.y), (new_node.x, new_node.y)))
-                
-                # Check if reached near goal
-                dist_to_goal = math.sqrt((new_node.x - goal_node.x)**2 + (new_node.y - goal_node.y)**2)
-                if dist_to_goal <= self.rrt_step_size:
-                    # Check if can connect directly to goal in known area
-                    if not self.check_path_collision(new_node.x, new_node.y, goal_node.x, goal_node.y):
-                        # Connect final node to goal
-                        final_node = self.steer(new_node, goal_node)
-                        node_list.append(final_node)
-                        
-                        # Store goal node and edge for visualization
-                        self.rrt_nodes.append((goal_node.x, goal_node.y))
-                        self.rrt_edges.append(((new_node.x, new_node.y), (goal_node.x, goal_node.y)))
-                        
-                        # Generate path
-                        path = self.generate_path(node_list)
-                        
-                        # Optimize path
-                        path = self.optimize_path(path)
-                        
-                        self.is_planning = False
-                        print(f"RRT path planning successful! (Attempt {attempt+1}/{max_attempts}, iteration {i+1})")
-                        return path
-                
-                # Check timeout
-                if time.time() - start_time > 5.0:  # 5 second limit
-                    print(f"RRT timeout. (Attempt {attempt+1}/{max_attempts})")
-                    break
+                    
+                # Goal is good, break the loop
+                print(f"DEBUG: Found suitable goal point on attempt {attempt+1}")
+                break
             
-            print(f"RRT attempt {attempt+1}/{max_attempts} failed. Trying again...")
-        
-        # All attempts failed
-        self.is_planning = False
-        print("All RRT attempts failed.")
-        return None
-
-    def get_nearest_node_index(self, node_list, target_node):
-        """
-        Return the index of the node closest to the target node
-        
-        Args:
-            node_list (list): List of nodes
-            target_node (RRTNode): Target node
+            # If we still don't have a goal after all attempts, try a random one
+            if goal_point is None:
+                print("DEBUG: Using random goal as fallback")
+                # Choose a random direction and distance
+                angle = np.random.uniform(0, 2 * np.pi)
+                distance = np.random.uniform(3.0, 8.0)  # Between 3 and 8 meters
+                goal_point = self.robot_position[:2] + np.array([
+                    distance * np.cos(angle),
+                    distance * np.sin(angle)
+                ])
+                
+                # Check if the random goal is in a free space
+                i, j = self.world_to_grid(goal_point[0], goal_point[1])
+                if hasattr(self, 'map_grid') and self.map_grid is not None:
+                    # Try up to 20 random angles to find a free space
+                    for _ in range(20):
+                        if i >= 0 and i < self.map_grid.shape[1] and j >= 0 and j < self.map_grid.shape[0]:
+                            if self.map_grid[j, i] < 0.5:  # Free space
+                                break
+                        
+                        # Try another angle
+                        angle = np.random.uniform(0, 2 * np.pi)
+                        goal_point = self.robot_position[:2] + np.array([
+                            distance * np.cos(angle),
+                            distance * np.sin(angle)
+                        ])
+                        i, j = self.world_to_grid(goal_point[0], goal_point[1])
+                    
+                    # Final check for reachability of random goal
+                    test_path = self.plan_path(self.robot_position[:2], goal_point)
+                    if not test_path or len(test_path) <= 1:
+                        print("DEBUG: Random goal is unreachable, will use direct path as fallback")
             
-        Returns:
-            int: Index of the closest node
-        """
-        distances = [(node.x - target_node.x)**2 + (node.y - target_node.y)**2 for node in node_list]
-        return distances.index(min(distances))
-
-    def steer(self, from_node, to_node):
-        """
-        Create a new node by moving from from_node toward to_node by steer_step distance
-        
-        Args:
-            from_node (RRTNode): Start node
-            to_node (RRTNode): Target node
-            
-        Returns:
-            RRTNode: New node
-        """
-        dist = math.sqrt((to_node.x - from_node.x)**2 + (to_node.y - from_node.y)**2)
-        
-        # If distance is less than step_size, return as is
-        if dist < self.rrt_step_size:
-            new_node = RRTNode(to_node.x, to_node.y)
+            # Update goal state
+            self.current_goal = goal_point
+            self.goal_start_time = current_time
+            self.goal_attempt_count = 0
+            print(f"DEBUG: New goal set to ({goal_point[0]:.2f}, {goal_point[1]:.2f})")
         else:
-            # Calculate direction vector
-            theta = math.atan2(to_node.y - from_node.y, to_node.x - from_node.x)
-            new_node = RRTNode(
-                from_node.x + self.rrt_step_size * math.cos(theta),
-                from_node.y + self.rrt_step_size * math.sin(theta)
-            )
+            # Use existing goal
+            goal_point = self.current_goal
+            print(f"DEBUG: Continuing with existing goal ({goal_point[0]:.2f}, {goal_point[1]:.2f})")
         
-        # Set path and parent
-        new_node.path_x = from_node.path_x.copy()
-        new_node.path_y = from_node.path_y.copy()
-        new_node.path_x.append(new_node.x)
-        new_node.path_y.append(new_node.y)
-        new_node.parent = from_node
+        # Plan a path to the goal
+        path = self.plan_path(self.robot_position[:2], goal_point)
         
-        return new_node
+        # Debug path information
+        if path:
+            print(f"DEBUG: Path planned with {len(path)} waypoints")
+        else:
+            print("DEBUG: Failed to plan a path")
 
-    def generate_path(self, node_list):
+        # Store the current path
+        if path and len(path) > 1:
+            self.current_path = path
+            self.current_path_index = 1  # Start with the second point (first after start)
+            
+            # Generate control to follow the path - ONLY if we have a valid path
+            control_input = self.generate_control(dt)
+            print(f"DEBUG: Generated control: ({control_input[0]:.2f}, {control_input[1]:.2f})")
+            return control_input, goal_point, path
+        else:
+            # No valid path found
+            self.goal_attempt_count += 1
+            print(f"DEBUG: No valid path found, attempt #{self.goal_attempt_count}")
+            
+            # Clear the current path to prevent using old path data
+            self.current_path = []
+            
+            # If we've tried too many times, find a new goal next time
+            if self.goal_attempt_count >= self.max_goal_attempts:
+                print("DEBUG: No valid path found after multiple attempts, will select new goal next time")
+                self.current_goal = None
+            
+            # Return no control input when path planning fails
+            return None, self.current_goal, []
+
+        # # In the plan_and_control method
+        # if path and len(path) > 1:
+        #     self.current_path = path
+        #     self.current_path_index = 0  # Start with the first point
+            
+        #     # Generate control using open loop control
+        #     control_input = self.generate_control(self.current_path, self.current_path_index, dt)
+            
+        #     # Increment path index based on estimated progress (time-based)
+        #     distance_to_next = np.linalg.norm(self.current_path[self.current_path_index + 1] - 
+        #                                     self.current_path[self.current_path_index])
+        #     time_to_next = distance_to_next / np.linalg.norm(control_input)
+            
+        #     # After the estimated time has passed, move to the next waypoint
+        #     self.waypoint_timer += dt
+        #     if self.waypoint_timer >= time_to_next:
+        #         self.current_path_index += 1
+        #         self.waypoint_timer = 0
+            
+        #     return control_input, goal_point, path
+
+    def generate_entropy_map(self):
         """
-        Generate path from node list
+        Generate an entropy map from the occupancy grid.
+        
+        Returns:
+            entropy_map: 2D numpy array of information entropy
+        """
+        if self.map_grid is None:
+            return None
+        
+        # Ensure probabilities are in [0.001, 0.999] range to avoid log(0) issues
+        p = np.clip(self.map_grid, 0.001, 0.999)
+        
+        # Calculate entropy: -p*log(p) - (1-p)*log(1-p)
+        entropy = -p * np.log(p) - (1 - p) * np.log(1 - p)
+        
+        # Apply mean filtering
+        kernel = np.ones((3, 3)) / 9.0
+        entropy_smooth = convolve(entropy, kernel)
+        
+        self.entropy_map = entropy_smooth
+        return entropy_smooth
+    
+    def compute_entropy_gradient(self, entropy_map=None):
+        """
+        Compute the gradient of the entropy map.
         
         Args:
-            node_list (list): List of nodes
+            entropy_map: Optional entropy map to use (generated if None)
             
         Returns:
-            list: Path coordinate list [[x1, y1], [x2, y2], ...]
+            (gradient_x, gradient_y, gradient_magnitude): Gradient components and magnitude
         """
-        # Trace back from last node to start node
-        path = []
-        node = node_list[-1]  # Last node
+        if entropy_map is None:
+            entropy_map = self.generate_entropy_map()
+            
+        if entropy_map is None:
+            return None, None, None
         
-        while node.parent is not None:
-            path.append([node.x, node.y])
-            node = node.parent
+        # Apply Sobel filter
+        gradient_x = sobel(entropy_map, axis=1)
+        gradient_y = sobel(entropy_map, axis=0)
         
-        # Add start node
-        path.append([node.x, node.y])
+        # Compute gradient magnitude
+        gradient_magnitude = np.sqrt(gradient_x**2 + gradient_y**2)
         
-        # Reverse path (start -> goal order)
+        # Normalize to [0, 1]
+        max_magnitude = np.max(gradient_magnitude)
+        if max_magnitude > 0:
+            gradient_magnitude = gradient_magnitude / max_magnitude
+        
+        self.gradient_magnitude = gradient_magnitude
+        return gradient_x, gradient_y, gradient_magnitude
+    
+    def generate_boundary_map(self):
+        """
+        Generate a boundary map that highlights transitions between known and unknown areas.
+        
+        Returns:
+            boundary_map: 2D numpy array of boundary values
+        """
+        if self.map_grid is None:
+            return None
+        
+        # Compute entropy gradient if not already done
+        if self.gradient_magnitude is None:
+            _, _, self.gradient_magnitude = self.compute_entropy_gradient()
+        
+        # The gradient magnitude already represents boundaries
+        self.boundary_map = self.gradient_magnitude
+        
+        return self.boundary_map
+    
+    def select_exploration_goal(self):
+        """
+        Select the best exploration goal based on entropy gradient and beacon positions.
+        
+        Returns:
+            goal_point: [x, y] numpy array of selected goal position
+        """
+        # Generate boundary map if not available
+        if self.boundary_map is None:
+            self.generate_boundary_map()
+            
+        if self.boundary_map is None or self.map_grid is None:
+            print("ERROR: Boundary map or map grid is None, cannot select goal")
+            return None
+        
+        # Log current state
+        print(f"DEBUG: Robot position: [{self.robot_position[0]:.2f}, {self.robot_position[1]:.2f}]")
+        print(f"DEBUG: Map shape: {self.map_grid.shape}, Boundary map shape: {self.boundary_map.shape}")
+        
+        # Check if boundary map has any high values
+        high_boundary_cells = np.where(self.boundary_map > 0.3)  # Lower threshold to find more candidates
+        print(f"DEBUG: Number of high boundary cells: {len(high_boundary_cells[0])}")
+        
+        # Create a copy to avoid modifying the original
+        score_map = self.boundary_map.copy()
+        
+        # Get grid dimensions
+        height, width = score_map.shape
+        
+        # Robot position in grid coordinates
+        robot_x, robot_y = self.world_to_grid(self.robot_position[0], self.robot_position[1])
+        
+        # Compute scores for each cell based on distance and beacon proximity
+        best_score = -float('inf')
+        best_cell = None
+        
+        # Sample a subset of cells to evaluate (for efficiency)
+        sample_rate = 0.1  # Increase from 0.05 to 0.1 to evaluate 10% of cells
+        num_samples = int(height * width * sample_rate)
+        
+        # Skip if grid is very small
+        if num_samples < 10:
+            num_samples = min(height * width, 100)
+        
+        # Random sampling for evaluation
+        candidate_cells = []
+        
+        # Only consider cells with high boundary values
+        high_boundary_threshold = 0.3  # Lower threshold from 0.5 to 0.3
+        high_boundary_cells = np.where(self.boundary_map > high_boundary_threshold)
+        
+        # If we have high boundary cells, prioritize those
+        if len(high_boundary_cells[0]) > 0:
+            high_boundary_indices = list(zip(high_boundary_cells[0], high_boundary_cells[1]))
+            if len(high_boundary_indices) > num_samples:
+                candidate_cells = random.sample(high_boundary_indices, num_samples)
+            else:
+                candidate_cells = high_boundary_indices
+        
+        # If we need more candidates, add random cells
+        if len(candidate_cells) < num_samples:
+            additional_samples = num_samples - len(candidate_cells)
+            for _ in range(additional_samples):
+                i = random.randint(0, height - 1)
+                j = random.randint(0, width - 1)
+                candidate_cells.append((i, j))
+        
+        # If still no candidates, create some random positions around the robot
+        if not candidate_cells:
+            print("DEBUG: No candidate cells found, generating random positions")
+            for _ in range(20):
+                # Random distance between 3 and 10 meters
+                distance = random.uniform(3.0, 10.0)
+                # Random angle
+                angle = random.uniform(0, 2 * np.pi)
+                # Calculate position
+                x = self.robot_position[0] + distance * np.cos(angle)
+                y = self.robot_position[1] + distance * np.sin(angle)
+                # Convert to grid coordinates
+                i, j = self.world_to_grid(x, y)
+                # Ensure within grid bounds
+                if 0 <= i < width and 0 <= j < height:
+                    candidate_cells.append((j, i))  # Note: grid indices are (j,i)
+        
+        print(f"DEBUG: Evaluating {len(candidate_cells)} candidate cells")
+        
+        # When evaluating candidate cells:
+        for i, j in candidate_cells:
+            # Skip occupied cells
+            if i >= 0 and i < height and j >= 0 and j < width and self.map_grid[i, j] > 0.7:
+                continue
+                
+            # Get world coordinates
+            cell_x, cell_y = self.grid_to_world(j, i)
+            
+            # Compute distance to robot
+            dx = cell_x - self.robot_position[0]
+            dy = cell_y - self.robot_position[1]
+            distance = math.sqrt(dx*dx + dy*dy)
+            
+            # Skip cells that are too close to the robot
+            if distance < 0.5:
+                continue
+                
+            # Skip cells that are too far from the robot
+            if distance > 12.0:
+                continue
+            
+            # Computer score based on boundary value and distance
+            score = (self.boundary_map[i, j] * self.entropy_weight) / max(0.5, distance)
+            
+            # Add beacon attraction/repulsion factor
+            beacon_factor = 0
+            for beacon in self.beacon_positions:
+                beacon_dist = math.sqrt((cell_x - beacon[0])**2 + (cell_y - beacon[1])**2)
+                
+                # Attraction to beacons within radius
+                if beacon_dist < self.beacon_attraction_radius:
+                    beacon_factor += 1.0 / max(0.5, beacon_dist)
+            
+            # Add beacon factor to score
+            score += beacon_factor * self.beacon_weight
+            
+            # Penalize previously visited areas
+            if self.visited_regions is not None:
+                visit_penalty = self.visit_penalty_weight * self.visited_regions[i, j]
+                score *= (1.0 - visit_penalty)
+            
+            if score > best_score:
+                best_score = score
+                best_cell = (i, j)
+    
+
+        # If no valid cell found, return None
+        if best_cell is None:
+            print("DEBUG: No valid goal cell found after scoring")
+            return None
+            
+        # Convert best cell to world coordinates
+        i, j = best_cell
+        goal_x, goal_y = self.grid_to_world(j, i)
+        
+        print(f"DEBUG: Selected goal at ({goal_x:.2f}, {goal_y:.2f}) with score {best_score:.4f}")
+        return np.array([goal_x, goal_y])
+    
+    def plan_path(self, start, goal):
+        """
+        Plan a path from start to goal using A*.
+        
+        Args:
+            start: [x, y] start position
+            goal: [x, y] goal position
+            
+        Returns:
+            path: List of [x, y] positions along the path
+        """
+        # Check if we're already very close to the goal
+        if np.linalg.norm(np.array(start) - np.array(goal)) < self.waypoint_threshold:
+            # If we're very close, just return a direct path
+            return [np.array(start), np.array(goal)]
+        
+        # If map is not available, return direct path
+        if self.map_grid is None:
+            return [np.array(start), np.array(goal)]
+        
+        # Clear previous A* data
+        self.astar_open_set = []
+        self.astar_closed_set = []
+        self.astar_path = []
+        
+        # Convert start and goal to grid coordinates
+        start_grid = self.world_to_grid(start[0], start[1])
+        goal_grid = self.world_to_grid(goal[0], goal[1])
+        
+        # Make sure start and goal are valid
+        height, width = self.map_grid.shape
+        if (start_grid[0] < 0 or start_grid[0] >= width or 
+            start_grid[1] < 0 or start_grid[1] >= height or
+            goal_grid[0] < 0 or goal_grid[0] >= width or
+            goal_grid[1] < 0 or goal_grid[1] >= height):
+            print("DEBUG: Start or goal outside map boundaries")
+            return []
+        
+        # Check if start or goal are in occupied cells
+        if self.map_grid[start_grid[1], start_grid[0]] > 0.5 or self.map_grid[goal_grid[1], goal_grid[0]] > 0.5:
+            print("DEBUG: Start or goal in occupied cell")
+            # For goal, we can try to find the nearest free cell
+            if self.map_grid[goal_grid[1], goal_grid[0]] > 0.5:
+                nearest_free = self.find_nearest_free_cell(goal_grid)
+                if nearest_free:
+                    goal_grid = nearest_free
+                    goal = np.array(self.grid_to_world(goal_grid[0], goal_grid[1]))
+                    print(f"DEBUG: Adjusted goal to nearest free cell: {goal}")
+                else:
+                    print("DEBUG: Could not find nearest free cell for goal")
+                    return []
+            else:
+                return []
+        
+        # Define movement directions (8-connected grid)
+        if self.astar_allow_diagonal:
+            # 8-connected grid (horizontal, vertical, and diagonal movements)
+            directions = [
+                (0, 1),   # down
+                (1, 0),   # right
+                (0, -1),  # up
+                (-1, 0),  # left
+                (1, 1),   # down-right
+                (1, -1),  # up-right
+                (-1, 1),  # down-left
+                (-1, -1)  # up-left
+            ]
+            costs = [
+                self.straight_cost,  # down
+                self.straight_cost,  # right
+                self.straight_cost,  # up
+                self.straight_cost,  # left
+                self.diagonal_cost,  # down-right
+                self.diagonal_cost,  # up-right
+                self.diagonal_cost,  # down-left
+                self.diagonal_cost   # up-left
+            ]
+        else:
+            # 4-connected grid (only horizontal and vertical movements)
+            directions = [
+                (0, 1),   # down
+                (1, 0),   # right
+                (0, -1),  # up
+                (-1, 0)   # left
+            ]
+            costs = [
+                self.straight_cost,  # down
+                self.straight_cost,  # right
+                self.straight_cost,  # up
+                self.straight_cost   # left
+            ]
+        
+        # Initialize A* data structures
+        open_set = []  # Priority queue for open nodes
+        closed_set = set()  # Set of closed nodes
+        g_score = {}  # Cost from start to node
+        f_score = {}  # Total estimated cost (g_score + heuristic)
+        came_from = {}  # Parent node mapping
+        
+        # Initialize start node
+        start_node = (start_grid[0], start_grid[1])
+        goal_node = (goal_grid[0], goal_grid[1])
+        
+        g_score[start_node] = 0
+        f_score[start_node] = self.heuristic(start_node, goal_node)
+        
+        # Push start node to open set (f_score, counter for tiebreaking, node)
+        counter = 0
+        heapq.heappush(open_set, (f_score[start_node], counter, start_node))
+        
+        # Store for visualization
+        self.astar_open_set = [start_node]
+        
+        # Main A* loop
+        while open_set:
+            # Get node with lowest f_score
+            _, _, current = heapq.heappop(open_set)
+            
+            # Store for visualization
+            self.astar_closed_set.append(current)
+            
+            # Check if goal reached
+            if current == goal_node:
+                # Reconstruct path
+                path = self.reconstruct_path(came_from, current)
+                path = self.smooth_path(path)
+                
+                # Convert path to world coordinates
+                world_path = [np.array(self.grid_to_world(x, y)) for x, y in path]
+                
+                # Store for visualization
+                self.astar_path = path
+                
+                return world_path
+            
+            # Add current to closed set
+            closed_set.add(current)
+            
+            # Explore neighbors
+            for i, (dx, dy) in enumerate(directions):
+                neighbor = (current[0] + dx, current[1] + dy)
+                
+                # Check if neighbor is valid
+                if (neighbor[0] < 0 or neighbor[0] >= width or 
+                    neighbor[1] < 0 or neighbor[1] >= height):
+                    continue
+                
+                # Check if neighbor is in closed set
+                if neighbor in closed_set:
+                    continue
+                
+                # Check if neighbor is in an occupied cell
+                if self.map_grid[neighbor[1], neighbor[0]] > 0.5:
+                    continue
+                
+                # Compute tentative g_score
+                tentative_g_score = g_score[current] + costs[i]
+                
+                # Initialize neighbor if not seen before
+                if neighbor not in g_score or tentative_g_score < g_score[neighbor]:
+                    # Update path
+                    came_from[neighbor] = current
+                    g_score[neighbor] = tentative_g_score
+                    f_score[neighbor] = tentative_g_score + self.heuristic(neighbor, goal_node)
+                    
+                    # Add to open set if not already there
+                    in_open_set = False
+                    for _, _, node in open_set:
+                        if node == neighbor:
+                            in_open_set = True
+                            break
+                    
+                    if not in_open_set:
+                        counter += 1
+                        heapq.heappush(open_set, (f_score[neighbor], counter, neighbor))
+                        
+                        # Store for visualization
+                        self.astar_open_set.append(neighbor)
+        
+        # No path found
+        print("DEBUG: A* failed to find a path")
+        return []
+    
+    def heuristic(self, a, b):
+        """
+        Calculate heuristic (Euclidean distance) between two grid cells.
+        
+        Args:
+            a: (x, y) coordinates of first cell
+            b: (x, y) coordinates of second cell
+            
+        Returns:
+            distance: Euclidean distance between cells
+        """
+        return math.sqrt((b[0] - a[0])**2 + (b[1] - a[1])**2)
+    
+    def reconstruct_path(self, came_from, current):
+        """
+        Reconstruct path from A* search results.
+        
+        Args:
+            came_from: Dictionary mapping nodes to their parents
+            current: Current (goal) node
+            
+        Returns:
+            path: List of (x, y) grid coordinates along the path
+        """
+        path = [current]
+        while current in came_from:
+            current = came_from[current]
+            path.append(current)
+        
+        # Reverse to get path from start to goal
         path.reverse()
         
         return path
-
-    def optimize_path(self, path):
+    
+    def smooth_path(self, path):
         """
-        Optimize path (remove unnecessary intermediate nodes)
+        Apply path smoothing to remove unnecessary waypoints.
         
         Args:
-            path (list): Path coordinate list [[x1, y1], [x2, y2], ...]
+            path: List of (x, y) grid coordinates
             
         Returns:
-            list: Optimized path coordinate list
+            smoothed_path: Smoothed path with fewer waypoints
         """
-        if path is None or len(path) <= 2:
+        if len(path) <= 2:
             return path
         
-        optimized_path = [path[0]]  # Add start point
+        smoothed_path = [path[0]]
         i = 0
         
         while i < len(path) - 1:
-            # Check next points from current point
+            current = path[i]
+            
+            # Look ahead as far as possible with a clear line of sight
             for j in range(len(path) - 1, i, -1):
-                # Check if direct connection is possible
-                if not self.check_path_collision(path[i][0], path[i][1], path[j][0], path[j][1]):
-                    # If direct connection is possible, add that point and skip intermediate points
-                    optimized_path.append(path[j])
+                if self.is_collision_free_grid(current, path[j]):
+                    smoothed_path.append(path[j])
                     i = j
                     break
-            else:
-                # If direct connection is not possible, add next point
+            
+            # If no clear line of sight, just add the next point
+            if i == len(path) - 1 or not self.is_collision_free_grid(current, path[i + 1]):
                 i += 1
                 if i < len(path):
-                    optimized_path.append(path[i])
+                    smoothed_path.append(path[i])
         
-        return optimized_path
-
-    ##################################################
-
-    def compute_control(self, current_pos, path, dt):
+        return smoothed_path
+    
+    def is_collision_free_grid(self, from_cell, to_cell):
         """
-        return control input to follow a given path (using PD controller)
-        
-        """
-        
-        if path is None or len(path) < 2:
-            print(f"Warning: Path is {path} - returning zero control")
-            return np.array([0.0, 0.0])
-        
-        # Ensure current path index is valid
-        if self.current_path_index >= len(path):
-            print(f"Warning: Path index {self.current_path_index} >= path length {len(path)}")
-            self.current_path_index = len(path) - 1
-
-        target_pos = np.array(path[self.current_path_index])
-        
-        print(f"Path control - current: {current_pos}, target: {target_pos}, distance: {np.linalg.norm(target_pos - current_pos)}, index: {self.current_path_index}/{len(path)}")
-
-        # Determine if this is the final waypoint in the path
-        is_final_waypoint = (self.current_path_index == len(path) - 1)
-        
-        # Use different distance thresholds for final waypoint vs. intermediate waypoints
-        dist_threshold = self.goal_reached_dist if is_final_waypoint else self.waypoint_reached_dist
-        
-        print(f"Is final waypoint: {is_final_waypoint}, threshold: {dist_threshold}")
-
-        # reached target point
-        if np.linalg.norm(target_pos - current_pos) < dist_threshold:
-            # If this is the final waypoint, mark it
-            if is_final_waypoint:
-                if not self.final_goal_reached:
-                    self.final_goal_reached = True
-                    self.goal_reached_time = time.time()
-                    print(f"Final goal reached at: {target_pos}, time: {self.goal_reached_time}")
-                
-                # If we're at the final goal, slow down more significantly
-                slow_factor = 0.5
-                error = target_pos - current_pos
-                d_error = (error - self.prev_error) / dt if dt > 0 else np.array([0.0, 0.0])
-                self.prev_error = error.copy()
-                control_input = self.pd_p_gain * error * slow_factor + self.pd_d_gain * d_error * slow_factor
-                
-                # Ensure minimum control to maintain position
-                control_norm = np.linalg.norm(control_input)
-                if control_norm < 0.05:  # Very small control
-                    print(f"Very small control at goal: {control_input}, setting to zero")
-                    control_input = np.array([0.0, 0.0])  # Just stop
-                
-                self.last_control = control_input.copy()
-                return control_input
-            else:
-                # Move to next waypoint in the path
-                self.current_path_index += 1
-                # Reset the goal reached flag when starting to move to a new waypoint
-                self.final_goal_reached = False
-                self.goal_reached_time = None
-                
-                # Update target to the new waypoint
-                if self.current_path_index < len(path):
-                    target_pos = np.array(path[self.current_path_index])
-                    print(f"Moving to next waypoint: {target_pos}, index: {self.current_path_index}")
-                else:
-                    self.current_path_index = len(path) - 1
-                    print("Reached end of path, stopping")
-                    return np.array([0.0, 0.0])
-        
-        # Regular controller logic for following the path
-        error = target_pos - current_pos
-
-        d_error = (error - self.prev_error) / dt if dt > 0 else np.array([0.0, 0.0])
-        self.prev_error = error.copy()
-
-        # pd control 
-        control_input = self.pd_p_gain * error + self.pd_d_gain * d_error
-        
-        print(f"PD control: p_gain={self.pd_p_gain}, d_gain={self.pd_d_gain}")
-        print(f"Error: {error}, d_error: {d_error}")
-        print(f"Raw control: {control_input}")
-
-        # control input clipping 
-        max_speed = 5.0  # 증가된 최대 속도
-        control_norm = np.linalg.norm(control_input)
-
-        if control_norm > max_speed:
-            control_input = control_input / control_norm * max_speed
-            print(f"Control clipped to: {control_input}")
-        
-        # 최소 제어 입력 설정 - 로봇이 너무 천천히 움직이지 않도록
-        min_control_norm = 0.2  # 최소 제어 입력 크기
-        if 0 < control_norm < min_control_norm:
-            control_input = control_input / control_norm * min_control_norm
-            print(f"Control boosted to minimum: {control_input}")
-
-        self.last_control = control_input.copy()
-        print(f"Final control output: {control_input}, norm: {np.linalg.norm(control_input)}")
-
-        return control_input
-       
-
-    def plan_and_control(self, dt):
-        """
-        Path planning and control input calculation
+        Check if a path between two grid cells is collision-free.
         
         Args:
-            dt (float): Time interval
+            from_cell: (x, y) starting grid cell
+            to_cell: (x, y) target grid cell
             
         Returns:
-            tuple: (control_input, goal_point, path)
-                - control_input: Velocity command [vx, vy]
-                - goal_point: Current goal point
-                - path: Planned path
+            is_free: True if path is collision-free, False otherwise
         """
-        if self.occupancy_grid is None:
-            return None, None, None
+        # Bresenham's line algorithm for grid-based collision checking
+        x0, y0 = from_cell
+        x1, y1 = to_cell
         
-        # Define replanning conditions
-        need_new_plan = (
-            self.current_path is None or  # No path exists
-            len(self.current_path) == 0 or  # Empty path
-            (  # Regular replanning condition with timing
-                time.time() - self.planning_time > self.min_replan_time and  # Minimum replanning time passed
-                not self.final_goal_reached  # Not at the final goal
-            ) or
-            (  # Final goal reached and dwell time passed
-                self.final_goal_reached and
-                self.goal_reached_time is not None and
-                time.time() - self.goal_reached_time > self.goal_dwell_time
-            )
-        )
+        dx = abs(x1 - x0)
+        dy = abs(y1 - y0)
+        sx = 1 if x0 < x1 else -1
+        sy = 1 if y0 < y1 else -1
+        err = dx - dy
         
-        # If new plan is needed
-        if need_new_plan:
-            # If it is already planning, keep previous control
-            if self.is_planning:
-                goal_point = np.array([self.current_path[-1][0], self.current_path[-1][1]]) if self.current_path and len(self.current_path) > 0 else None
-                return self.last_control, goal_point, self.current_path
-            
-            # Reset goal reached flags
-            self.final_goal_reached = False
-            self.goal_reached_time = None
-            
-            # Select new goal point
-            goal_x, goal_y = self.select_goal_point()
-            if goal_x is None or goal_y is None:
-                return None, None, None
-            
-            goal_pos = np.array([goal_x, goal_y])
-            print(f"New goal point: {goal_pos}, planning time: {time.time()}")
-
-            # path planner using RRT
-            path = self.rrt_planning(self.current_pos, goal_pos)
-
-            if path is None:
-                return self.last_control, goal_pos, []
-
-            self.current_path = path
-            self.current_path_index = 0
-            self.planning_time = time.time()
-
-            control = self.compute_control(self.current_pos, self.current_path, dt)
+        while x0 != x1 or y0 != y1:
+            if 0 <= x0 < self.map_grid.shape[1] and 0 <= y0 < self.map_grid.shape[0]:
+                if self.map_grid[y0, x0] > 0.5:  # Cell is occupied
+                    return False
+            else:
+                return False  # Out of bounds
+                
+            e2 = 2 * err
+            if e2 > -dy:
+                err -= dy
+                x0 += sx
+            if e2 < dx:
+                err += dx
+                y0 += sy
+        
+        # Check final cell
+        if 0 <= x1 < self.map_grid.shape[1] and 0 <= y1 < self.map_grid.shape[0]:
+            return self.map_grid[y1, x1] <= 0.5
         else:
-            # Continue with existing path
-            control = self.compute_control(self.current_pos, self.current_path, dt)
-        
-        goal_point = np.array([self.current_path[-1][0], self.current_path[-1][1]]) if self.current_path and len(self.current_path) > 0 else None
-        return control, goal_point, self.current_path
-            
-    def compute_exploration_coverage(self):
+            return False
+    
+    def find_nearest_free_cell(self, cell):
         """
-        Compute the percentage of the map that has been explored
+        Find the nearest unoccupied cell to the given cell.
         
+        Args:
+            cell: (x, y) grid coordinates
+            
         Returns:
-            float: Percentage of explored area (0.0 to 1.0)
-            bool: True if exploration is considered complete
+            nearest: (x, y) coordinates of nearest free cell, or None if not found
         """
-        if self.occupancy_grid is None:
-            return 0.0, False
+        # Maximum search radius
+        max_radius = 10
         
-        # Count cells
-        total_cells = self.grid_width * self.grid_height
-        unknown_cells = np.sum(self.occupancy_grid == -1)
-        occupied_cells = np.sum(self.occupancy_grid >= 50)
-        free_cells = np.sum((self.occupancy_grid >= 0) & (self.occupancy_grid < 50))
+        # Get map dimensions
+        height, width = self.map_grid.shape
         
-        # Calculate exploration percentage
-        explored_percent = 1.0 - (unknown_cells / total_cells)
+        # BFS to find nearest free cell
+        queue = [(cell[0], cell[1], 0)]
+        visited = set([(cell[0], cell[1])])
         
-        # Check boundary conditions
-        boundary_map = self.detect_exploration_boundary(self.generate_entropy_map())
-        boundary_count = np.sum(boundary_map > 0.3)
+        # Explore in all 8 directions
+        directions = [
+            (0, 1), (1, 0), (0, -1), (-1, 0),  # 4-connected
+            (1, 1), (1, -1), (-1, 1), (-1, -1)  # diagonals
+        ]
         
-        # Calculate coverage metrics
-        free_space_ratio = free_cells / (free_cells + occupied_cells) if (free_cells + occupied_cells) > 0 else 0
-        boundary_density = boundary_count / total_cells
+        while queue:
+            x, y, dist = queue.pop(0)
+            
+            # Check if this cell is free
+            if 0 <= x < width and 0 <= y < height and self.map_grid[y, x] <= 0.5:
+                return (x, y)
+            
+            # Stop if we've gone too far
+            if dist >= max_radius:
+                continue
+            
+            # Add neighbors to the queue
+            for dx, dy in directions:
+                nx, ny = x + dx, y + dy
+                if (nx, ny) not in visited and 0 <= nx < width and 0 <= ny < height:
+                    visited.add((nx, ny))
+                    queue.append((nx, ny, dist + 1))
         
-        print(f"Exploration stats:")
-        print(f"- Total cells: {total_cells}")
-        print(f"- Unknown cells: {unknown_cells}")
-        print(f"- Occupied cells: {occupied_cells}")
-        print(f"- Free cells: {free_cells}")
-        print(f"- Explored percentage: {explored_percent*100:.1f}%")
-        print(f"- Free space ratio: {free_space_ratio*100:.1f}%")
-        print(f"- Boundary density: {boundary_density*100:.1f}%")
+        # No free cell found within radius
+        return None
+
+    def is_collision_free(self, from_node, to_node):
+        """
+        Check if a path between two world coordinate nodes is collision-free.
         
-        # Exploration is complete if:
-        # 1. High exploration percentage (>95%)
-        # 2. Low boundary density (<0.1%)
-        # 3. Reasonable free space ratio (20-80%)
-        is_complete = (
-            explored_percent > 0.95 and  # Most of the map is explored
-            boundary_density < 0.001 and  # Few exploration boundaries
-            0.2 <= free_space_ratio <= 0.8  # Reasonable mix of free and occupied space
-        )
+        Args:
+            from_node: Starting node in world coordinates
+            to_node: Target node in world coordinates
+            
+        Returns:
+            is_free: True if path is collision-free, False otherwise
+        """
+        if self.map_grid is None:
+            return True
         
-        if is_complete:
-            print("Exploration complete! All criteria met.")
-        else:
-            print("Exploration incomplete:")
-            if explored_percent <= 0.95:
-                print("- Not enough area explored")
-            if boundary_density >= 0.001:
-                print("- Too many exploration boundaries")
-            if free_space_ratio < 0.2 or free_space_ratio > 0.8:
-                print("- Unreasonable free space ratio")
+        # Number of checks along the path
+        resolution = max(1, int(np.linalg.norm(to_node - from_node) / (self.map_resolution * 0.5)))
         
-        return explored_percent, is_complete
+        # Check points along the path
+        for i in range(resolution + 1):
+            t = i / resolution
+            point = from_node * (1 - t) + to_node * t
+            
+            # Convert to grid coordinates
+            grid_i, grid_j = self.world_to_grid(point[0], point[1])
+            
+            # Check if in bounds
+            if 0 <= grid_i < self.map_grid.shape[1] and 0 <= grid_j < self.map_grid.shape[0]:
+                # Check if occupied
+                if self.map_grid[grid_j, grid_i] > 0.5:  # Threshold for occupancy
+                    return False
+            else:
+                # Out of bounds is considered collision
+                return False
         
+        return True
+
+    def generate_control(self, dt):
+        """
+        Generate control signal to follow the current path.
+        
+        Args:
+            dt: Time step
+            
+        Returns:
+            control: [vx, vy] velocity control
+        """
+        if not self.current_path or self.current_path_index >= len(self.current_path):
+            return np.zeros(2)
+        
+        # Current target waypoint
+        target = self.current_path[self.current_path_index]
+        
+        # Error (vector from robot to target)
+        error_x = target[0] - self.robot_position[0]
+        error_y = target[1] - self.robot_position[1]
+        
+        # Check if we've reached the waypoint
+        dist_to_target = math.sqrt(error_x**2 + error_y**2)
+        
+        if dist_to_target < self.waypoint_threshold:
+            # Advance to next waypoint
+            self.current_path_index += 1
+            
+            # If we've reached the end of the path
+            if self.current_path_index >= len(self.current_path):
+                return np.zeros(2)
+                
+            # Update target
+            target = self.current_path[self.current_path_index]
+            error_x = target[0] - self.robot_position[0]
+            error_y = target[1] - self.robot_position[1]
+        
+        # Calculate error and error derivative
+        error = np.array([error_x, error_y])
+        error_derivative = (error - self.prev_error) / dt
+        
+        # PD control
+        control = self.pd_p_gain * error + self.pd_d_gain * error_derivative
+        
+        # Limit control magnitude
+        control_mag = np.linalg.norm(control)
+        if control_mag > 2.0:
+            control = control * (2.0 / control_mag)
+            
+        # Update previous error
+        self.prev_error = error
+        
+        return control
+        
+    # def generate_control(self, path, current_index, dt):
+    #     """
+    #     Generate an open loop control signal based on the planned path.
+        
+    #     Args:
+    #         path: List of waypoints
+    #         current_index: Current path index
+    #         dt: Time step
+                
+    #     Returns:
+    #         control: [vx, vy] velocity control
+    #     """
+    #     if not path or current_index >= len(path) - 1:
+    #         return np.zeros(2)
+        
+    #     # Get current and next waypoint
+    #     current_point = path[current_index]
+    #     next_point = path[current_index + 1]
+        
+    #     # Compute direction vector
+    #     direction = next_point - current_point
+    #     distance = np.linalg.norm(direction)
+        
+    #     # Normalize direction vector
+    #     if distance > 0:
+    #         direction = direction / distance
+        
+    #     # Compute velocity (fixed speed in the direction of the next waypoint)
+    #     speed = 1.0  # Fixed speed in m/s
+    #     control = direction * speed
+        
+    #     return control
+    
+    def world_to_grid(self, x, y):
+        """
+        Convert world coordinates to grid indices.
+        
+        Args:
+            x, y: World coordinates
+            
+        Returns:
+            i, j: Grid indices
+        """
+        if self.map_grid is None or self.map_origin is None:
+            return 0, 0
+            
+        i = int((x - self.map_origin[0]) / self.map_resolution)
+        j = int((y - self.map_origin[1]) / self.map_resolution)
+        
+        # Ensure within grid bounds
+        i = max(0, min(i, self.map_grid.shape[1] - 1))
+        j = max(0, min(j, self.map_grid.shape[0] - 1))
+        
+        return i, j
+        
+    def grid_to_world(self, i, j):
+        """
+        Convert grid indices to world coordinates.
+        
+        Args:
+            i, j: Grid indices
+            
+        Returns:
+            x, y: World coordinates
+        """
+        if self.map_origin is None:
+            return 0, 0
+            
+        x = self.map_origin[0] + (i + 0.5) * self.map_resolution
+        y = self.map_origin[1] + (j + 0.5) * self.map_resolution
+        
+        return x, y
